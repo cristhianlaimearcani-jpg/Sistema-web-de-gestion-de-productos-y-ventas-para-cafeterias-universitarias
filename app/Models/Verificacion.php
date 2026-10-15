@@ -2,10 +2,10 @@
 
 namespace App\Models;
 
-use App\Mail\CodigoVerificacionMail;
+use App\Services\Notificador;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 
 class Verificacion extends Model
 {
@@ -14,75 +14,68 @@ class Verificacion extends Model
     public const MAX_INTENTOS = 5;
     public const MINUTOS = 10;
 
-    protected $fillable = ['user_id', 'pago_id', 'codigo_hash', 'intentos', 'expira_en', 'usado_en'];
+    protected $fillable = ['pago_id', 'user_id', 'codigo_hash', 'intentos', 'vence_en', 'usado'];
 
     protected function casts(): array
     {
-        return [
-            'expira_en' => 'datetime',
-            'usado_en'  => 'datetime',
-        ];
+        return ['vence_en' => 'datetime', 'usado' => 'boolean', 'intentos' => 'integer'];
     }
 
-    // Crea un código nuevo de 6 dígitos y lo envía por correo al estudiante.
-    // Si el correo no se puede enviar, lanza la excepción y no deja nada guardado.
-    public static function enviarA(Pago $pago): self
+    public function pago(): BelongsTo
     {
-        $pedido = $pago->pedido;
-        $user = $pedido->user;
+        return $this->belongsTo(Pago::class);
+    }
 
-        static::where('pago_id', $pago->id)->whereNull('usado_en')->delete();
+    /** Genera un código de 6 dígitos y lo envía al correo del cliente. Devuelve true si el correo salió. */
+    public static function enviarA(Pago $pago): bool
+    {
+        $usuario = $pago->pedido->user;
+        $codigo = (string) random_int(100000, 999999);
 
-        $codigo = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        self::where('pago_id', $pago->id)->update(['usado' => true]);
 
-        $verificacion = static::create([
-            'user_id'     => $user->id,
-            'pago_id'     => $pago->id,
+        self::create([
+            'pago_id' => $pago->id,
+            'user_id' => $usuario->id,
             'codigo_hash' => Hash::make($codigo),
-            'expira_en'   => now()->addMinutes(self::MINUTOS),
+            'intentos' => 0,
+            'vence_en' => now()->addMinutes(self::MINUTOS),
+            'usado' => false,
         ]);
 
-        try {
-            Mail::to($user->email)->send(new CodigoVerificacionMail(
-                $user->name,
-                $codigo,
-                self::MINUTOS,
-                $pedido->id,
-                number_format((float) $pago->monto, 2),
-            ));
-        } catch (\Throwable $e) {
-            $verificacion->delete();
-
-            throw $e;
-        }
-
-        return $verificacion;
+        return Notificador::codigo($usuario, $codigo, $pago);
     }
 
-    // Devuelve: ok | incorrecto | expirado | bloqueado
-    public function comprobar(string $codigo): string
+    /** Devuelve: ok | incorrecto | vencido | bloqueado | sin_codigo */
+    public static function comprobar(Pago $pago, string $codigo): string
     {
-        if ($this->usado_en || $this->expira_en->isPast()) {
-            return 'expirado';
-        }
+        $v = self::where('pago_id', $pago->id)->where('usado', false)->latest('id')->first();
 
-        if ($this->intentos >= self::MAX_INTENTOS) {
+        if (! $v) {
+            return 'sin_codigo';
+        }
+        if ($v->vence_en->isPast()) {
+            return 'vencido';
+        }
+        if ($v->intentos >= self::MAX_INTENTOS) {
             return 'bloqueado';
         }
 
-        if (! Hash::check($codigo, $this->codigo_hash)) {
-            $this->increment('intentos');
+        if (! Hash::check($codigo, $v->codigo_hash)) {
+            $v->increment('intentos');
 
-            return $this->intentos >= self::MAX_INTENTOS ? 'bloqueado' : 'incorrecto';
+            return $v->intentos >= self::MAX_INTENTOS ? 'bloqueado' : 'incorrecto';
         }
 
-        $this->update(['usado_en' => now()]);
+        $v->update(['usado' => true]);
 
         return 'ok';
     }
 
-    public function intentosRestantes(): int
+    public static function intentosRestantes(Pago $pago): int
     {
-        return max(0, self::MAX_INTENTOS - $this->intentos);
+        $v = self::where('pago_id', $pago->id)->where('usado', false)->latest('id')->first();
+
+        return $v ? max(0, self::MAX_INTENTOS - $v->intentos) : 0;
     }
 }

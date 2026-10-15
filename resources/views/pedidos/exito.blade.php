@@ -1,47 +1,34 @@
-@extends('layouts.panel')
+@extends('layouts.app')
 
 @section('titulo', '¡Gracias por tu compra!')
+@section('ancho', 'angosto')
 
 @section('contenido')
-    @if (session('gracias'))
-        <div class="toast" id="toast">
-            🎉 ¡Gracias por tu compra, {{ $pedido->user->name }}!<br>
-            <small>Tu pedido #{{ $pedido->id }} está confirmado.</small>
-        </div>
-    @endif
-
-    <section class="tarjeta gracias no-imprimir">
-        <div class="check">✓</div>
+    <section class="tarjeta gracias">
+        <div class="marca-ok">✓</div>
         <h1>¡Gracias por tu compra!</h1>
-        <p>Tu pago fue confirmado. Presenta este código en la cafetería para recoger tu pedido:</p>
+        <p class="subtitulo" style="margin-bottom:8px">Tu pago fue confirmado. Muestra este código en la cafetería para recoger tu pedido #{{ $pedido->id }}.</p>
 
-        <div class="codigo-grande">{{ $pedido->codigo_recojo }}</div>
+        <div class="codigo-grande">{{ $pedido->codigo }}</div>
 
-        <div class="qr-caja chico">
-            <img src="{{ $qrRecojo }}" alt="QR del código de recojo" width="170" height="170">
+        <div class="qr-caja chico"><img src="{{ $qrRecojo }}" alt="QR de recojo del pedido {{ $pedido->id }}"></div>
+
+        <div class="aviso" style="text-align:left">
+            📧 Te avisaremos por correo a <strong>{{ $pedido->user->email }}</strong> cuando tu pedido esté <strong>en preparación</strong> (con el tiempo estimado) y cuando esté <strong>listo</strong>.
         </div>
 
-        <p class="ayuda">
-            Código único, válido solo para este pedido. Enviamos un comprobante a tu correo;
-            si no llega, revisa la carpeta de spam. Tu factura está más abajo y queda guardada en "Mis pedidos".
-        </p>
-
-        <div class="acciones" style="justify-content:center;">
-            <button type="button" class="btn" onclick="window.print()">🖨️ Imprimir factura</button>
-            <a class="btn gris" href="{{ route('pedidos.historial') }}">Mis pedidos</a>
-            <a class="btn gris" href="{{ route('dashboard') }}">Seguir pidiendo</a>
+        <div class="acciones" style="justify-content:center">
+            <a class="btn" href="{{ route('pedido.seguimiento', $pedido) }}">Seguir mi pedido</a>
+            <a class="btn contorno" href="{{ route('dashboard') }}">Seguir pidiendo</a>
         </div>
     </section>
 
-    @include('facturas._documento')
+    @isset($factura)
+        <section class="tarjeta factura">
+            @include('facturas._documento')
+            <div class="acciones no-imprimir">
+                <a class="btn contorno" href="{{ route('factura.show', $pedido) }}">Abrir factura / imprimir</a>
+            </div>
+        </section>
+    @endisset
 @endsection
-
-@push('scripts')
-<script>
-    // La notificación se esconde sola después de unos segundos
-    setTimeout(function () {
-        var t = document.getElementById('toast');
-        if (t) { t.classList.add('oculto'); }
-    }, 7000);
-</script>
-@endpush

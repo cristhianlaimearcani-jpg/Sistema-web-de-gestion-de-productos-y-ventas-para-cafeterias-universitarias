@@ -1,199 +1,129 @@
-@extends('layouts.panel')
+@extends('layouts.app')
 
 @section('titulo', 'Pagar con QR')
+@section('ancho', 'angosto')
 
 @section('contenido')
-    <h1>Pagar con código QR</h1>
-
-    <div class="columnas">
-        <section class="tarjeta">
-            @if ($pago->estado === 'pendiente')
-                @if ($modoBanco)
-                    {{-- Modo real: el QR de tu banco --}}
-                    <p class="ayuda centro">Escanea con la app de tu banco</p>
-
-                    @if ($qrBanco)
-                        <div class="qr-caja">
-                            <img src="{{ $qrBanco }}" alt="QR de cobro" width="280">
-                        </div>
-                    @else
-                        <div class="alerta">
-                            Falta la imagen del QR de cobro. Guárdala como <strong>public/img/qr-cobro.png</strong>.
-                        </div>
-                    @endif
-
-                    @if (config('cafeqr.banco_titular'))
-                        <p class="centro">Pagar a: <strong>{{ config('cafeqr.banco_titular') }}</strong>
-                            @if (config('cafeqr.banco_nombre')) ({{ config('cafeqr.banco_nombre') }}) @endif
-                        </p>
-                    @endif
-
-                    <p class="ayuda centro">Escribe exactamente este monto:</p>
-                    <p class="monto-pago">Bs {{ number_format($pago->monto, 2) }}</p>
-                    <p class="ayuda centro">
-                        Si tu app permite escribir un detalle, pon:
-                        <span class="codigo">Pedido #{{ $pedido->id }}</span>
-                    </p>
-                    <p class="centro">⏱ Tienes <strong id="cuenta">--:--</strong> para pagar</p>
-
-                    <form method="POST" action="{{ route('pago.yapague', $pago) }}">
-                        @csrf
-                        <label for="comprobante">Número de comprobante (opcional)</label>
-                        <input type="text" id="comprobante" name="comprobante" maxlength="60" placeholder="El que aparece en tu app al pagar">
-                        <button type="submit" class="btn">Ya realicé el pago</button>
-                    </form>
-                @else
-                    {{-- Modo demostración: QR de prueba --}}
-                    <p class="ayuda centro">Escanea este código con la app de tu banco</p>
-
-                    <div class="qr-caja">
-                        <img src="{{ $qr }}" alt="Código QR para pagar el pedido #{{ $pedido->id }}" width="260" height="260">
-                    </div>
-
-                    <p class="monto-pago">Bs {{ number_format($pago->monto, 2) }}</p>
-                    <p class="ayuda centro">
-                        Pedido #{{ $pedido->id }} · Referencia
-                        <span class="codigo">{{ strtoupper(substr($pago->referencia, 0, 8)) }}</span>
-                    </p>
-                    <p class="centro">⏱ El código vence en <strong id="cuenta">--:--</strong></p>
-                    <p class="ayuda centro">Esperando la confirmación del pago…</p>
-                @endif
-            @elseif ($pago->estado === 'por_verificar')
-                <div class="exito-caja">
-                    <div class="icono-correo">⏳</div>
-                    <h2>Estamos verificando tu pago</h2>
-                    <p>Avisamos a la cafetería. Cuando confirme que el dinero llegó, te enviaremos un código a tu correo.</p>
-                    @if ($pago->comprobante)
-                        <p class="ayuda">Comprobante: {{ $pago->comprobante }}</p>
-                    @endif
-                    <p class="ayuda">Esta pantalla se actualiza sola.</p>
-                </div>
-            @else
-                <div class="alerta">
-                    El pago no se completó. {{ $pago->detalle }}
-                </div>
-                <p class="ayuda">Si ya pagaste de verdad, no repitas el pago: habla con la cafetería. Si no, puedes intentarlo otra vez.</p>
-
-                <form method="POST" action="{{ route('pago.reintentar', $pago) }}">
-                    @csrf
-                    <button type="submit" class="btn">Reintentar pago (nuevo QR)</button>
-                </form>
-            @endif
-
-            @if ($pago->estado !== 'por_verificar')
-                <div class="acciones">
-                    <a class="btn gris" href="{{ route('pedido.confirmar') }}">Volver al pedido</a>
-                </div>
-            @endif
-        </section>
-
-        <section class="tarjeta">
-            <h2>Resumen</h2>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th>Producto</th>
-                        <th>Cant.</th>
-                        <th>Subtotal</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($pedido->detalles as $detalle)
-                        <tr>
-                            <td>{{ $detalle->producto->nombre }}</td>
-                            <td>{{ $detalle->cantidad }}</td>
-                            <td>Bs {{ number_format($detalle->subtotal, 2) }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-            <p class="total">Total: Bs {{ number_format($pedido->total, 2) }}</p>
-            <p class="ayuda">Factura a nombre de {{ $pedido->razon_social }} · NIT/CI {{ $pedido->nit_ci }}</p>
-
-            @if ($pago->metodo === 'demo' && $pago->estado === 'pendiente')
-                <div class="demo-box">
-                    <strong>Modo demostración</strong>
-                    <p class="ayuda">Un pago real lo haría tu banco. Para probar, usa estos botones:</p>
-
-                    <form method="POST" action="{{ route('pago.simular', $pago) }}" style="display:inline;">
-                        @csrf
-                        <input type="hidden" name="resultado" value="exito">
-                        <button type="submit" class="btn chico">✅ Simular pago exitoso</button>
-                    </form>
-
-                    <form method="POST" action="{{ route('pago.simular', $pago) }}" style="display:inline;">
-                        @csrf
-                        <input type="hidden" name="resultado" value="fallo">
-                        <button type="submit" class="btn chico rojo">❌ Simular pago fallido</button>
-                    </form>
-
-                    <p class="ayuda" style="margin-top:10px;">
-                        O abre la
-                        <a href="{{ route('pago.escanear', $pago->referencia) }}" target="_blank">app del banco de prueba</a>,
-                        que es lo que se vería al escanear el QR con el celular.
-                    </p>
-                </div>
-            @endif
-
-            <h3>Intentos de pago</h3>
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>Hora</th>
-                        <th>Estado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($intentos as $i => $intento)
-                        <tr>
-                            <td>{{ $i + 1 }}</td>
-                            <td>{{ $intento->created_at->format('H:i:s') }}</td>
-                            <td>
-                                <span class="etiqueta estado-{{ $intento->estado === 'fallido' ? 'cancelado' : ($intento->estado === 'pagado' ? 'entregado' : 'pendiente') }}">
-                                    {{ str_replace('_', ' ', ucfirst($intento->estado)) }}
-                                </span>
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        </section>
+    <div class="pasos-pago">
+        <span class="hecho">1 · Pedido</span>
+        <span class="activo">2 · Pago con QR</span>
+        <span>3 · Código del correo</span>
+        <span>4 · Listo</span>
     </div>
+
+    <section class="tarjeta centro">
+        <h1>Pago con QR</h1>
+        <p class="subtitulo">Pedido #{{ $pedido->id }}</p>
+        <div class="monto-pago">Bs {{ number_format($pago->monto, 2) }}</div>
+
+        @if ($pago->estado === 'fallido')
+            <div class="alerta">Este pago venció o fue rechazado. Genera uno nuevo para continuar.</div>
+            <form method="POST" action="{{ route('pago.reintentar', $pago) }}">
+                @csrf
+                <button type="submit" class="btn">Generar nuevo QR</button>
+            </form>
+
+        @elseif ($modoBanco)
+            {{-- ===== Modo banco: tu QR de Yape ===== --}}
+            @if ($qrBancoDisponible)
+                <div class="qr-caja"><img src="{{ asset(config('cafeqr.qr_cobro')) }}" alt="QR de {{ config('cafeqr.banco_nombre') }}"></div>
+                <div class="resumen-banco">
+                    Abre <strong>{{ config('cafeqr.banco_nombre') }}</strong>, toca <strong>Escanear QR</strong> y paga
+                    <strong>Bs {{ number_format($pago->monto, 2) }}</strong>
+                    @if (config('cafeqr.banco_titular')) a nombre de <strong>{{ config('cafeqr.banco_titular') }}</strong>@endif.
+                </div>
+                <p class="ayuda">Este QR se escanea desde la app de {{ config('cafeqr.banco_nombre') }}, no con la cámara normal.</p>
+            @else
+                <div class="alerta">No se encontró la imagen del QR de cobro. Copia tu QR en <code>public/{{ config('cafeqr.qr_cobro') }}</code> o cambia a <code>PAGO_MODO=demo</code> en el .env.</div>
+            @endif
+
+            @if ($pago->estado === 'pendiente')
+                <form method="POST" action="{{ route('pago.ya-pague', $pago) }}">
+                    @csrf
+                    <button type="submit" class="btn block" @disabled(! $qrBancoDisponible)>Ya pagué</button>
+                </form>
+                <p class="cuenta-regresiva" style="margin-top:12px">⏳ Vence en <span id="cuenta">--:--</span></p>
+            @else
+                <div class="espera"><span class="girar"></span> Estamos verificando tu pago. Cuando la cafetería lo confirme, te llegará un código a tu correo.</div>
+            @endif
+
+        @elseif ($pago->estado === 'pendiente' && $qr)
+            {{-- ===== Modo demo: QR que abre la "app del banco" de prueba ===== --}}
+            <div class="qr-caja"><img src="{{ $qr }}" alt="QR de pago del pedido {{ $pedido->id }}"></div>
+            <p class="ayuda">Escanéalo con la cámara de tu celular. Debe estar conectado al <strong>mismo Wi-Fi</strong> que esta computadora.</p>
+            <p class="url-qr">{{ $urlQr }}</p>
+
+            @if ($enLocalhost)
+                <div class="aviso" style="text-align:left">
+                    Abriste la página como <strong>localhost</strong>, así que el QR ya apunta a la IP de tu computadora para que el celular pueda abrirlo.
+                    Si el celular no abre el enlace, inicia el servidor con <code>iniciar-cafeqr.bat</code> y permite el acceso en el Firewall de Windows.
+                </div>
+            @endif
+
+            <div class="demo-box" style="text-align:left">
+                <strong>🧪 Modo demostración</strong>
+                <p>¿Sin celular a la mano? Simula el pago desde aquí:</p>
+                <form method="POST" action="{{ route('pago.simular', $pago) }}">
+                    @csrf
+                    <button type="submit" class="btn verde">Simular pago exitoso</button>
+                </form>
+            </div>
+            <p class="cuenta-regresiva">⏳ Vence en <span id="cuenta">--:--</span></p>
+        @else
+            <div class="espera"><span class="girar"></span> Procesando…</div>
+        @endif
+    </section>
+
+    @if (! in_array($pago->estado, ['recibido', 'completado']))
+        <section class="tarjeta">
+            <details class="cancelar-pedido">
+                <summary>Cancelar este pedido</summary>
+                <form method="POST" action="{{ route('pedido.cancelar', $pedido) }}">
+                    @csrf
+                    <div class="campo">
+                        <label for="motivo">Motivo <span class="opcional">(opcional)</span></label>
+                        <textarea id="motivo" name="motivo" maxlength="200" placeholder="Cuéntanos por qué lo cancelas"></textarea>
+                    </div>
+                    <button type="submit" class="btn rojo">Sí, cancelar pedido</button>
+                </form>
+            </details>
+            <p class="ayuda" style="margin:10px 0 0"><a href="{{ route('pedido.actual') }}">← Volver a mi pedido</a></p>
+        </section>
+    @endif
 @endsection
 
-@if (in_array($pago->estado, ['pendiente', 'por_verificar'], true))
-    @push('scripts')
-    <script>
-        (function () {
-            var estadoActual = "{{ $pago->estado }}";
+@push('scripts')
+<script>
+    (function () {
+        var estadoInicial = @json($pago->estado);
+        var urlEstado = @json(route('pago.estado', $pago));
+        var vence = @json($pago->vence_en?->timestamp);
+        var cuenta = document.getElementById('cuenta');
 
-            @if ($pago->estado === 'pendiente' && $pago->expira_en)
-            var vence = new Date("{{ $pago->expira_en->toIso8601String() }}").getTime();
-            var cuenta = document.getElementById('cuenta');
+        function actualizarCuenta() {
+            if (!cuenta || !vence) { return; }
+            var falta = Math.max(0, vence - Math.floor(Date.now() / 1000));
+            var m = String(Math.floor(falta / 60)).padStart(2, '0');
+            var s = String(falta % 60).padStart(2, '0');
+            cuenta.textContent = m + ':' + s;
+            if (falta === 0 && estadoInicial === 'pendiente') { window.location.reload(); }
+        }
+        actualizarCuenta();
+        setInterval(actualizarCuenta, 1000);
 
-            function tick() {
-                var s = Math.max(0, Math.floor((vence - Date.now()) / 1000));
-                if (cuenta) {
-                    cuenta.textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-                }
-                if (s === 0) { window.location.reload(); }
-            }
-            tick();
-            setInterval(tick, 1000);
-            @endif
-
-            // La pantalla se actualiza sola cuando el estado del pago cambia
-            setInterval(function () {
-                fetch("{{ route('pago.estado', $pago) }}", { headers: { 'Accept': 'application/json' } })
-                    .then(function (r) { return r.json(); })
-                    .then(function (d) {
-                        if (d.estado !== estadoActual) { window.location.reload(); }
-                    })
-                    .catch(function () {});
-            }, 3000);
-        })();
-    </script>
-    @endpush
-@endif
+        function consultar() {
+            fetch(urlEstado, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (!d) { return; }
+                    if (d.siguiente) { window.location.href = d.siguiente; return; }
+                    if (d.estado !== estadoInicial) { window.location.reload(); }
+                })
+                .catch(function () {});
+        }
+        if (['pendiente', 'por_verificar'].indexOf(estadoInicial) !== -1) {
+            setInterval(consultar, 3000);
+        }
+    })();
+</script>
+@endpush

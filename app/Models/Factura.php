@@ -3,58 +3,39 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Factura extends Model
 {
-    protected $fillable = [
-        'numero', 'pedido_id', 'razon_social', 'nit_ci',
-        'total', 'codigo_verificacion', 'emitida_en',
-    ];
+    protected $fillable = ['pedido_id', 'numero', 'emitida_en'];
 
     protected function casts(): array
     {
-        return [
-            'total'      => 'decimal:2',
-            'emitida_en' => 'datetime',
-        ];
+        return ['emitida_en' => 'datetime'];
     }
 
-    public function pedido()
+    public function pedido(): BelongsTo
     {
         return $this->belongsTo(Pedido::class);
+    }
+
+    /** Crea la factura del pedido (una sola vez) con número correlativo. */
+    public static function emitir(Pedido $pedido): self
+    {
+        $existente = self::where('pedido_id', $pedido->id)->first();
+        if ($existente) {
+            return $existente;
+        }
+
+        return self::create([
+            'pedido_id' => $pedido->id,
+            'numero' => ((int) self::max('numero')) + 1,
+            'emitida_en' => now(),
+        ]);
     }
 
     public function getNumeroFormateadoAttribute(): string
     {
         return str_pad((string) $this->numero, 6, '0', STR_PAD_LEFT);
-    }
-
-    // Emite la factura de un pedido pagado (una sola por pedido)
-    public static function emitir(Pedido $pedido): self
-    {
-        $existente = static::where('pedido_id', $pedido->id)->first();
-
-        if ($existente) {
-            return $existente;
-        }
-
-        $numero  = ((int) static::max('numero')) + 1;
-        $emitida = now();
-
-        $hash = strtoupper(substr(
-            hash('sha256', $numero . '|' . $pedido->id . '|' . $pedido->total . '|' . $emitida->timestamp . '|' . config('app.key')),
-            0,
-            16
-        ));
-
-        return static::create([
-            'numero'              => $numero,
-            'pedido_id'           => $pedido->id,
-            'razon_social'        => $pedido->razon_social ?: $pedido->user->name,
-            'nit_ci'              => $pedido->nit_ci ?: '0',
-            'total'               => $pedido->total,
-            'codigo_verificacion' => implode('-', str_split($hash, 4)),
-            'emitida_en'          => $emitida,
-        ]);
     }
 }

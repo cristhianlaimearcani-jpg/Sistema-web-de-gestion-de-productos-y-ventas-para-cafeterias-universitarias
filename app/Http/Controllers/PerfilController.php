@@ -2,72 +2,85 @@
 
 namespace App\Http\Controllers;
 
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rules\Password;
+use Illuminate\View\View;
 
 class PerfilController extends Controller
 {
-    // ---------- HU-03: Editar perfil ----------
-    public function show(Request $request)
+    public function mostrar(Request $request): View
     {
-        $user = $request->user();
+        $usuario = $request->user();
 
         return view('perfil.show', [
-            'user'         => $user,
-            'totalPedidos' => $user->pedidos()->count(),
+            'usuario' => $usuario,
+            'totalPedidos' => $usuario->pedidos()->whereNotIn('estado', ['carrito'])->count(),
         ]);
     }
 
-    public function update(Request $request)
+    public function actualizar(Request $request): RedirectResponse
     {
-        $datos = $request->validate([
-            'name'     => ['required', 'string', 'max:255'],
-            'telefono' => ['nullable', 'string', 'max:20'],
-            'foto'     => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
-        ], [
-            'name.required' => 'El nombre no puede quedar vacío.',
-            'foto.image'    => 'El archivo debe ser una imagen.',
-            'foto.mimes'    => 'Formatos permitidos: JPG, PNG o WEBP.',
-            'foto.max'      => 'La foto no puede pesar más de 2 MB.',
-            'foto.uploaded' => 'No se pudo subir la foto. Prueba con una imagen de menos de 2 MB.',
+        $request->merge([
+            'name' => preg_replace('/\s+/u', ' ', trim((string) $request->input('name'))),
+            'telefono' => preg_replace('/[\s-]+/', '', (string) $request->input('telefono')) ?: null,
         ]);
 
-        $user = $request->user();
+        $datos = $request->validate([
+            'name' => ['required', 'string', 'min:3', 'max:60', "regex:/^\\pL+(?:[\\s.'-]+\\pL+)*\\.?$/u"],
+            'telefono' => ['nullable', 'regex:/^[67]\d{7}$/'],
+            'foto' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+        ], [
+            'name.required' => 'El nombre es obligatorio.',
+            'name.min' => 'El nombre debe tener al menos 3 letras.',
+            'name.regex' => 'El nombre solo puede tener letras y espacios (sin números ni símbolos).',
+            'telefono.regex' => 'El celular debe tener 8 dígitos y empezar con 6 o 7.',
+            'foto.image' => 'El archivo debe ser una imagen.',
+            'foto.mimes' => 'La foto debe ser JPG, PNG o WEBP.',
+            'foto.max' => 'La foto no puede pesar más de 2 MB.',
+        ]);
 
-        // El correo NO se modifica (HU-03).
-        $user->name     = $datos['name'];
-        $user->telefono = $datos['telefono'] ?? null;
+        $usuario = $request->user();
+        $usuario->name = $datos['name'];
+        $usuario->telefono = $datos['telefono'] ?? null;
 
         if ($request->hasFile('foto')) {
-            $this->borrarFoto($user->foto);
-
+            $carpeta = public_path('fotos');
+            if (! is_dir($carpeta)) {
+                mkdir($carpeta, 0775, true);
+            }
             $archivo = $request->file('foto');
-            $nombre  = Str::uuid() . '.' . $archivo->extension();
-            $archivo->move(public_path('fotos'), $nombre);
+            $nombre = 'u'.$usuario->id.'_'.time().'.'.$archivo->getClientOriginalExtension();
+            $archivo->move($carpeta, $nombre);
 
-            $user->foto = 'fotos/' . $nombre;
+            if ($usuario->foto && is_file($carpeta.DIRECTORY_SEPARATOR.$usuario->foto)) {
+                @unlink($carpeta.DIRECTORY_SEPARATOR.$usuario->foto);
+            }
+            $usuario->foto = $nombre;
         }
 
-        $user->save();
+        $usuario->save();
 
-        return back()->with('status', 'Perfil actualizado correctamente.');
+        return back()->with('exito', 'Tus datos se guardaron.');
     }
 
-    public function eliminarFoto(Request $request)
+    public function cambiarPassword(Request $request): RedirectResponse
     {
-        $user = $request->user();
+        $request->validate([
+            'password_actual' => ['required', 'current_password'],
+            'password' => ['required', 'confirmed', Password::min(8)->letters()->numbers()],
+        ], [
+            'password_actual.required' => 'Escribe tu contraseña actual.',
+            'password_actual.current_password' => 'La contraseña actual no es correcta.',
+            'password.confirmed' => 'Las contraseñas nuevas no coinciden.',
+            'password.min' => 'La contraseña nueva debe tener al menos 8 caracteres.',
+            'password.letters' => 'La contraseña nueva debe incluir al menos una letra.',
+            'password.numbers' => 'La contraseña nueva debe incluir al menos un número.',
+        ]);
 
-        $this->borrarFoto($user->foto);
-        $user->foto = null;
-        $user->save();
+        $request->user()->update(['password' => $request->input('password')]);
 
-        return back()->with('status', 'Foto eliminada.');
-    }
-
-    private function borrarFoto(?string $ruta): void
-    {
-        if ($ruta && file_exists(public_path($ruta))) {
-            @unlink(public_path($ruta));
-        }
+        return back()->with('exito', 'Cambiaste tu contraseña.');
     }
 }

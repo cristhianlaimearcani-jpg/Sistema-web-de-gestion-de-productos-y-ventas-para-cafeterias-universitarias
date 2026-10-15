@@ -3,66 +3,58 @@
 namespace App\Http\Controllers;
 
 use App\Models\Pago;
-use Illuminate\Http\Request;
+use App\Models\Pedido;
+use App\Services\Notificador;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\View\View;
 
-// Pantalla de la cafetería: aquí se confirma que el dinero llegó
+/** Caja: confirmar pagos (QR por verificar y efectivo). Empleados y administrador. */
 class CajaController extends Controller
 {
-    public function index(Request $request)
+    public function pagos(): View
     {
-        $this->autorizar($request);
+        $conPedido = ['pedido.user', 'pedido.detalles'];
 
-        $porVerificar = Pago::with('pedido.user')
-            ->where('estado', 'por_verificar')
-            ->orderBy('updated_at')
-            ->get();
-
-        $pendientes = Pago::with('pedido.user')
-            ->where('metodo', 'banco')
-            ->where('estado', 'pendiente')
-            ->latest('id')
-            ->limit(15)
-            ->get();
-
-        $recientes = Pago::with('pedido.user')
-            ->whereIn('estado', ['recibido', 'pagado'])
-            ->latest('id')
-            ->limit(15)
-            ->get();
-
-        return view('caja.pagos', compact('porVerificar', 'pendientes', 'recientes'));
+        return view('caja.pagos', [
+            'porVerificar' => Pago::where('estado', 'por_verificar')->with($conPedido)->oldest()->get(),
+            'efectivo' => Pago::where('estado', 'por_cobrar')->with($conPedido)->oldest()->get(),
+            'esperandoCodigo' => Pago::where('estado', 'recibido')->with($conPedido)->oldest()->get(),
+            'modoPrueba' => Notificador::modoPrueba(),
+        ]);
     }
 
-    // "Recibí el dinero": se envía el código de confirmación al correo del estudiante
-    public function recibido(Request $request, Pago $pago)
+    /** "Recibí el dinero": en QR envía el código al correo; en efectivo termina el pago. */
+    public function recibido(Pago $pago): RedirectResponse
     {
-        $this->autorizar($request);
-
-        if ($pago->marcarRecibido() !== 'recibido') {
-            return back()->with('error', 'No se pudo confirmar: el pago está "' . $pago->refresh()->estado . '".');
+        if ($pago->pedido->estado !== Pedido::PENDIENTE_PAGO) {
+            return back()->with('error', 'Ese pedido ya no está pendiente de pago.');
         }
 
-        $enviado = $pago->enviarCodigo();
+        if ($pago->estado === 'por_cobrar') {
+            $pago->completar();
 
-        return back()->with(
-            'status',
-            $enviado
-                ? 'Pago confirmado. Se envió el código al correo del estudiante.'
-                : 'Pago confirmado, pero el correo no se pudo enviar. El estudiante puede pedir el código otra vez en su pantalla.'
-        );
+            return back()->with('exito', 'Cobro en efectivo registrado. El cliente recibió su código de recojo y su factura.');
+        }
+
+        if ($pago->estado === 'por_verificar') {
+            $enviado = $pago->marcarRecibido();
+
+            return back()->with($enviado
+                ? ['exito' => 'Pago confirmado. Le enviamos el código de 6 dígitos al correo del cliente.']
+                : ['error' => 'Pago confirmado, pero no se pudo enviar el correo. Revisa la configuración MAIL_* del .env.']);
+        }
+
+        return back()->with('error', 'Ese pago ya fue atendido.');
     }
 
-    public function rechazar(Request $request, Pago $pago)
+    public function rechazar(Pago $pago): RedirectResponse
     {
-        $this->autorizar($request);
+        if (! in_array($pago->estado, ['por_verificar', 'por_cobrar'], true)) {
+            return back()->with('error', 'Ese pago ya fue atendido.');
+        }
 
-        $pago->fallar('La cafetería no encontró tu pago. Si ya pagaste, habla con la cafetería.');
+        $pago->rechazar();
 
-        return back()->with('status', 'Pago rechazado.');
-    }
-
-    private function autorizar(Request $request): void
-    {
-        abort_unless($request->user()->rol === 'encargado', 403);
+        return back()->with('exito', 'Pago rechazado. El cliente puede volver a intentarlo.');
     }
 }

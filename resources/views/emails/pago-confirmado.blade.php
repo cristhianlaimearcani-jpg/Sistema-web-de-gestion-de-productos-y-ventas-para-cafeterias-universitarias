@@ -1,54 +1,34 @@
-<!DOCTYPE html>
-<html lang="es">
-<body style="margin:0; padding:24px; background:#f4eef0; font-family:Arial, sans-serif; color:#2b1a1e;">
-    <div style="max-width:520px; margin:0 auto; background:#ffffff; border-radius:14px; overflow:hidden;">
-        <div style="background:#7d1126; color:#ffffff; padding:18px 24px; font-size:22px; font-weight:bold;">
-            ☕ CafeQR · ¡Gracias por tu compra!
-        </div>
+@extends('emails.layout')
 
-        <div style="padding:24px;">
-            <p style="margin-top:0;">Hola, <strong>{{ $pedido->user->name }}</strong>:</p>
-            <p>Tu compra del pedido <strong>#{{ $pedido->id }}</strong> está confirmada. Presenta este código en la cafetería para recogerla:</p>
+@section('contenido')
+    @php($enlace = \App\Support\UrlPublica::base(request()).route('pedido.seguimiento', $pedido, false))
+    <p style="margin:0 0 12px;">Hola, <strong>{{ $usuario->name }}</strong>:</p>
+    <p style="margin:0 0 12px;"><strong>¡Pago confirmado!</strong> Tu pedido <strong>#{{ $pedido->id }}</strong> ya está en la cola de la cafetería.</p>
 
-            <p style="text-align:center; font-size:40px; font-weight:bold; letter-spacing:8px; color:#7d1126; background:#f8ebee; border:2px dashed #7d1126; border-radius:12px; padding:14px; margin:18px 0;">
-                {{ $pedido->codigo_recojo }}
-            </p>
+    <p style="text-align:center;margin:18px 0 6px;color:#6e5a5f;font-size:13px;">Tu código de recojo</p>
+    <p style="text-align:center;margin:0 0 18px;">
+        <span style="display:inline-block;font-family:Consolas,monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:#7d1126;background:#f8ebee;border:2px dashed #7d1126;border-radius:14px;padding:10px 22px 10px 30px;">{{ $pedido->codigo }}</span>
+    </p>
 
-            <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse; font-size:14px;">
-                <tr style="background:#f8ebee; color:#560a1a;">
-                    <th align="left">Producto</th>
-                    <th align="center">Cant.</th>
-                    <th align="right">Subtotal</th>
-                </tr>
-                @foreach ($pedido->detalles as $detalle)
-                    <tr>
-                        <td style="border-bottom:1px solid #e6d9dc;">{{ $detalle->producto->nombre }}</td>
-                        <td align="center" style="border-bottom:1px solid #e6d9dc;">{{ $detalle->cantidad }}</td>
-                        <td align="right" style="border-bottom:1px solid #e6d9dc;">Bs {{ number_format($detalle->subtotal, 2) }}</td>
-                    </tr>
-                @endforeach
-                <tr>
-                    <td colspan="2" align="right"><strong>Total</strong></td>
-                    <td align="right"><strong style="color:#7d1126; font-size:16px;">Bs {{ number_format($pedido->total, 2) }}</strong></td>
-                </tr>
-            </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-collapse:collapse;">
+        @foreach ($pedido->detalles as $detalle)
+            <tr>
+                <td style="padding:6px 0;border-bottom:1px solid #eee3e5;">{{ $detalle->cantidad }} × {{ $detalle->nombre }}</td>
+                <td align="right" style="padding:6px 0;border-bottom:1px solid #eee3e5;">Bs {{ number_format($detalle->subtotal, 2) }}</td>
+            </tr>
+        @endforeach
+        <tr>
+            <td style="padding:10px 0;"><strong>Total</strong></td>
+            <td align="right" style="padding:10px 0;"><strong>Bs {{ number_format($pedido->total, 2) }}</strong></td>
+        </tr>
+    </table>
 
-            @if ($pedido->factura)
-                <div style="margin-top:20px; border:1px solid #e6d9dc; border-radius:10px; padding:14px; font-size:14px;">
-                    <strong style="color:#560a1a;">FACTURA N° {{ $pedido->factura->numero_formateado }}</strong><br>
-                    Fecha: {{ $pedido->factura->emitida_en->format('d/m/Y H:i') }}<br>
-                    Nombre / Razón social: {{ $pedido->factura->razon_social }}<br>
-                    NIT / C.I.: {{ $pedido->factura->nit_ci }}<br>
-                    Cliente: {{ $pedido->user->name }} · {{ $pedido->user->email }}<br>
-                    Código de verificación: {{ $pedido->factura->codigo_verificacion }}
-                </div>
-                <p style="color:#6e5a5f; font-size:13px;">Puedes ver e imprimir tu factura completa entrando a CafeQR, en "Mis pedidos". Es un documento referencial del sistema.</p>
-            @endif
-        </div>
+    @if ($pedido->factura)
+        <p style="margin:6px 0 14px;color:#6e5a5f;font-size:13px;">Factura N.º {{ $pedido->factura->numero_formateado }} · {{ $pedido->metodo_pago === 'efectivo' ? 'Pago en efectivo' : 'Pago con QR' }}</p>
+    @endif
 
-        <div style="background:#f8ebee; color:#6e5a5f; padding:12px 24px; font-size:12px; text-align:center;">
-            CafeQR · Universidad Privada del Valle · La Paz, Bolivia
-        </div>
-    </div>
-</body>
-</html>
+    <p style="margin:0 0 16px;">Te avisaremos por correo cuando tu pedido esté <strong>en preparación</strong> y cuando esté <strong>listo</strong>.</p>
+    <p style="text-align:center;margin:18px 0;">
+        <a href="{{ $enlace }}" style="background:#7d1126;color:#ffffff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:600;display:inline-block;">Seguir mi pedido</a>
+    </p>
+@endsection

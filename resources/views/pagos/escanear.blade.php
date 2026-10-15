@@ -1,46 +1,42 @@
-@extends('layouts.app')
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Confirmar pago · Banco demo</title>
+    <link rel="stylesheet" href="{{ asset('css/cafeqr.css') }}">
+</head>
+<body class="fondo-auth">
+    <div class="auth-envoltorio">
+        <div class="caja centro">
+            <div class="caja-marca" style="justify-content:center">
+                @include('partials.logo-cafeqr', ['tam' => 40])
+                <span>Banco demo CafeQR</span>
+            </div>
 
-@section('titulo', 'Confirmar pago')
+            @if ($pago->estado === 'pendiente')
+                <h1>Confirmar pago</h1>
+                <p class="subtitulo">Pagas a <strong>{{ config('cafeqr.emisor.nombre') }}</strong></p>
+                <div class="monto-pago">Bs {{ number_format($pago->monto, 2) }}</div>
+                <p class="ayuda">Pedido #{{ $pedido->id }} · {{ $pedido->user->name }}</p>
 
-@section('contenido')
-    <h1>Confirmar pago</h1>
-    <p class="ayuda">Simulación de la app del banco (modo demostración).</p>
-
-    @php $resultado = session('resultado'); @endphp
-
-    @if ($resultado === 'recibido')
-        <div class="exito">✅ ¡Pago realizado! Vuelve a CafeQR: te enviamos un código a tu correo para confirmar la compra.</div>
-    @elseif ($resultado === 'rechazado')
-        <div class="alerta">El pago fue rechazado. No se te cobró nada.</div>
-    @elseif ($resultado === 'vencido')
-        <div class="alerta">Este código QR venció. Genera uno nuevo en CafeQR.</div>
-    @elseif ($resultado === 'ya_recibido')
-        <div class="exito">Este pago ya estaba realizado. No se cobra dos veces.</div>
-    @elseif (in_array($resultado, ['fallido', 'pedido_cerrado'], true))
-        <div class="alerta">Este código ya no es válido. Genera uno nuevo en CafeQR.</div>
-    @endif
-
-    <div class="resumen-banco">
-        <p class="dato"><strong>Comercio:</strong> {{ config('cafeqr.emisor_nombre') }}</p>
-        <p class="dato"><strong>Pedido:</strong> #{{ $pago->pedido_id }}</p>
-        <p class="monto-pago">Bs {{ number_format($pago->monto, 2) }}</p>
+                <form method="POST" action="{{ route('pagar.ejecutar', $pago->referencia) }}">
+                    @csrf
+                    <button type="submit" class="enviar">Pagar Bs {{ number_format($pago->monto, 2) }}</button>
+                </form>
+                <p class="ayuda" style="margin-top:12px">Pantalla de demostración: no se cobra dinero real.</p>
+            @elseif (in_array($pago->estado, ['recibido', 'completado']))
+                <div class="marca-ok">✓</div>
+                <h1>¡Pago realizado!</h1>
+                <p class="subtitulo">Vuelve a la computadora: ahí te pedimos el código de 6 dígitos que te llegó al correo para terminar tu compra.</p>
+            @elseif ($pago->estado === 'fallido')
+                <h1>QR vencido</h1>
+                <p class="subtitulo">Este código ya no es válido. Genera uno nuevo desde la pantalla de pago de tu pedido.</p>
+            @else
+                <h1>Pago no disponible</h1>
+                <p class="subtitulo">Este pago ya no está activo.</p>
+            @endif
+        </div>
     </div>
-
-    @if ($pago->estado === 'pendiente')
-        <form method="POST" action="{{ route('pago.ejecutar', $pago->referencia) }}">
-            @csrf
-            <input type="hidden" name="accion" value="pagar">
-            <button type="submit">Pagar Bs {{ number_format($pago->monto, 2) }}</button>
-        </form>
-
-        <form method="POST" action="{{ route('pago.ejecutar', $pago->referencia) }}">
-            @csrf
-            <input type="hidden" name="accion" value="rechazar">
-            <button type="submit" style="background:#6b5b60;">Rechazar</button>
-        </form>
-    @elseif (in_array($pago->estado, ['recibido', 'pagado'], true) && ! $resultado)
-        <div class="exito">Este pago ya fue realizado.</div>
-    @elseif ($pago->estado === 'fallido' && ! $resultado)
-        <div class="alerta">Este código ya no es válido. {{ $pago->detalle }}</div>
-    @endif
-@endsection
+</body>
+</html>

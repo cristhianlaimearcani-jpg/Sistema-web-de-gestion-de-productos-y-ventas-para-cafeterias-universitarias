@@ -6,38 +6,39 @@ use App\Models\Pedido;
 use App\Support\NumeroALetras;
 use App\Support\Qr;
 use Illuminate\Http\Request;
+use Illuminate\View\View;
 
 class FacturaController extends Controller
 {
-    public function show(Request $request, Pedido $pedido)
+    public function mostrar(Request $request, Pedido $pedido): View
     {
-        abort_unless($pedido->user_id === $request->user()->id, 403);
+        $usuario = $request->user();
+        abort_unless($pedido->user_id === $usuario->id || $usuario->esPersonal(), 403);
 
-        return view('facturas.show', self::datos($pedido));
+        $pedido->load(['factura', 'detalles', 'user']);
+        abort_unless($pedido->factura, 404);
+
+        return view('facturas.show', ['pedido' => $pedido] + self::datos($pedido));
     }
 
-    // Todo lo que necesita la factura (también la usa la pantalla "Gracias por tu compra")
+    /** Datos que usa el documento de la factura (también la pantalla de "gracias"). */
     public static function datos(Pedido $pedido): array
     {
-        $pedido->load('detalles.producto', 'factura', 'user');
-
         $factura = $pedido->factura;
-
-        abort_unless($factura, 404);
-
-        $qrFactura = Qr::dataUri(implode('|', [
-            'CAFEQR',
-            $factura->numero_formateado,
-            $factura->emitida_en->format('Y-m-d H:i'),
-            number_format((float) $factura->total, 2, '.', ''),
-            $factura->codigo_verificacion,
-        ]));
+        $total = (float) $pedido->total;
 
         return [
-            'pedido'    => $pedido,
-            'factura'   => $factura,
-            'enLetras'  => NumeroALetras::bolivianos($factura->total),
-            'qrFactura' => $qrFactura,
+            'factura' => $factura,
+            'emisor' => config('cafeqr.emisor'),
+            'clienteNombre' => $pedido->razon_social ?: $pedido->user->name,
+            'clienteDoc' => $pedido->nit_ci ?: 'S/N',
+            'enLetras' => NumeroALetras::convertir($total),
+            'qrFactura' => Qr::dataUri(sprintf(
+                'CAFEQR|FACTURA %s|%s|%s',
+                $factura->numero_formateado,
+                number_format($total, 2, '.', ''),
+                $factura->emitida_en->format('Y-m-d H:i')
+            )),
         ];
     }
 }

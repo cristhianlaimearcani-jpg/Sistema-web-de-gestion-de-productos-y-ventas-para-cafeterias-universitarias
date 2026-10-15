@@ -1,106 +1,136 @@
-@extends('layouts.panel')
+@extends('layouts.app')
 
 @section('titulo', 'Seguimiento del pedido')
+@section('ancho', 'angosto')
 
 @section('contenido')
     @php
-        $pasos = [
-            'pagado'         => 'Pago confirmado',
-            'en_preparacion' => 'En preparación',
-            'listo'          => 'Listo para recoger',
-            'entregado'      => 'Entregado',
-        ];
-        $posicion = array_search($pedido->estado, array_keys($pasos), true);
+        $orden = ['pagado' => 1, 'en_preparacion' => 2, 'listo' => 3, 'entregado' => 4];
+        $nivel = $orden[$pedido->estado] ?? 0;
+        $minutos = $pedido->minutosRestantes();
     @endphp
 
-    <section class="tarjeta">
-        <div class="pedido-cab">
-            <h1 style="margin:0;">Pedido #{{ $pedido->id }}</h1>
-            <span class="etiqueta estado-{{ $pedido->estado }}">{{ $pedido->estado_texto }}</span>
+    <div class="cabecera-pagina">
+        <div>
+            <h1>Pedido #{{ $pedido->id }}</h1>
+            <p class="subtitulo" style="margin:0">Código de recojo: <span class="codigo">{{ $pedido->codigo }}</span></p>
         </div>
+        <span class="etiqueta estado-{{ $pedido->estado }}" id="etiqueta-estado">{{ $pedido->estado_texto }}</span>
+    </div>
 
-        @if ($posicion === false)
-            <div class="alerta" style="margin-top:14px;">Este pedido todavía no está pagado.</div>
+    <section class="tarjeta">
+        @if ($pedido->estado === 'cancelado')
+            <div class="tiempo-caja cancelado">
+                <strong>Este pedido fue cancelado.</strong>
+                <p style="margin:6px 0 0">
+                    Cancelado por {{ $pedido->cancelado_por === 'cliente' ? 'ti' : 'la cafetería' }}@if ($pedido->motivo_cancelacion): “{{ $pedido->motivo_cancelacion }}”@endif.
+                    @if ($pedido->reembolso_pendiente) Pasa por la cafetería para que te devuelvan tu dinero. @endif
+                </p>
+            </div>
         @else
-            <ol class="pasos">
-                @foreach ($pasos as $clave => $texto)
-                    <li class="{{ ($loop->index < $posicion || $pedido->estado === 'entregado') ? 'hecho' : ($loop->index === $posicion ? 'actual' : '') }}">
-                        <span class="num">{{ $loop->iteration }}</span>{{ $texto }}
-                    </li>
-                @endforeach
+            <ol class="pasos" aria-label="Estado del pedido">
+                <li class="paso {{ $nivel > 1 ? 'hecho' : ($nivel === 1 ? 'actual' : '') }}" data-n="1">Pagado</li>
+                <li class="paso {{ $nivel > 2 ? 'hecho' : ($nivel === 2 ? 'actual' : '') }}" data-n="2">En preparación</li>
+                <li class="paso {{ $nivel > 3 ? 'hecho' : ($nivel === 3 ? 'actual' : '') }}" data-n="3">Listo</li>
+                <li class="paso {{ $nivel === 4 ? 'hecho' : '' }}" data-n="4">Entregado</li>
             </ol>
 
             @if ($pedido->estado === 'pagado')
-                <p class="centro">Recibimos tu pedido. La cafetería lo empezará a preparar en breve.</p>
+                <div class="tiempo-caja">
+                    <strong>Tu pago está confirmado.</strong>
+                    <p style="margin:6px 0 0">La cafetería empezará a prepararlo pronto. Cuando lo haga, aquí verás cuántos minutos faltan y te llegará un correo.</p>
+                </div>
             @elseif ($pedido->estado === 'en_preparacion')
-                <p class="centro">👨‍🍳 Estamos preparando tu pedido.</p>
+                <div class="tiempo-caja" id="caja-tiempo">
+                    <div>Tu pedido estará listo en aproximadamente</div>
+                    <div class="minutos"><span id="minutos">{{ $minutos ?? $pedido->tiempo_estimado }}</span> min</div>
+                    <div class="ayuda">Hora estimada: <strong id="hora-estimada">{{ $pedido->listo_estimado?->timezone(config('app.timezone'))->format('H:i') }}</strong></div>
+                </div>
             @elseif ($pedido->estado === 'listo')
-                <div class="exito centro">🔔 ¡Tu pedido está listo! Preséntate en la cafetería con tu código.</div>
-            @elseif ($pedido->estado === 'entregado')
-                <p class="centro">✅ Pedido entregado. ¡Gracias por tu compra!</p>
+                <div class="tiempo-caja listo">
+                    <div class="minutos">🎉 ¡Tu pedido está listo!</div>
+                    <p style="margin:6px 0 0">Pasa a recogerlo mostrando el código <strong>{{ $pedido->codigo }}</strong>.</p>
+                </div>
+            @else
+                <div class="tiempo-caja listo">
+                    <div class="minutos">✅ Pedido entregado</div>
+                    <p style="margin:6px 0 0">¡Que lo disfrutes!</p>
+                </div>
             @endif
+        @endif
 
-            @if ($pedido->codigo_recojo && $pedido->estado !== 'entregado')
-                <p class="centro ayuda">Tu código de recojo:</p>
-                <p class="centro"><span class="codigo-grande">{{ $pedido->codigo_recojo }}</span></p>
-            @endif
+        <p class="ayuda centro" id="aviso-auto">Esta pantalla se actualiza sola.</p>
+    </section>
 
-            <h3>Tu pedido</h3>
+    <section class="tarjeta">
+        <h2>Detalle</h2>
+        <div class="tabla-wrap">
             <table>
-                <thead>
-                    <tr>
-                        <th>Producto</th>
-                        <th>Cant.</th>
-                        <th>Subtotal</th>
-                    </tr>
-                </thead>
+                <thead><tr><th>Producto</th><th>Cant.</th><th class="num">Subtotal</th></tr></thead>
                 <tbody>
                     @foreach ($pedido->detalles as $detalle)
-                        <tr>
-                            <td>{{ $detalle->producto->nombre }}</td>
-                            <td>{{ $detalle->cantidad }}</td>
-                            <td>Bs {{ number_format($detalle->subtotal, 2) }}</td>
-                        </tr>
+                        <tr><td>{{ $detalle->nombre }}</td><td>{{ $detalle->cantidad }}</td><td class="num">Bs {{ number_format($detalle->subtotal, 2) }}</td></tr>
                     @endforeach
                 </tbody>
             </table>
-            <p class="total">Total: Bs {{ number_format($pedido->total, 2) }}</p>
+        </div>
+        <p class="total">Total: Bs {{ number_format($pedido->total, 2) }}</p>
 
-            <div class="acciones">
-                <a class="btn gris" href="{{ route('pedidos.historial') }}">Mis pedidos</a>
-                @if ($pedido->factura)
-                    <a class="btn gris" href="{{ route('factura.show', $pedido) }}">Ver factura</a>
-                @endif
-            </div>
-        @endif
+        <div class="acciones">
+            @if ($pedido->factura)
+                <a class="btn contorno" href="{{ route('factura.show', $pedido) }}">Ver factura</a>
+            @endif
+            <a class="btn gris" href="{{ route('pedidos.historial') }}">Mis pedidos</a>
+        </div>
     </section>
+
+    @if ($pedido->puedeCancelarCliente())
+        <section class="tarjeta">
+            <details class="cancelar-pedido">
+                <summary>¿Quieres cancelar este pedido?</summary>
+                <p class="ayuda">Solo puedes cancelar mientras no haya empezado a prepararse. Si ya pagaste, te devolverán el dinero en la cafetería.</p>
+                <form method="POST" action="{{ route('pedido.cancelar', $pedido) }}">
+                    @csrf
+                    <div class="campo">
+                        <label for="motivo">Motivo <span class="opcional">(opcional)</span></label>
+                        <textarea id="motivo" name="motivo" maxlength="200" placeholder="Cuéntanos por qué lo cancelas"></textarea>
+                    </div>
+                    <button type="submit" class="btn rojo">Sí, cancelar pedido</button>
+                </form>
+            </details>
+        </section>
+    @endif
 @endsection
 
-@if ($posicion !== false && $pedido->estado !== 'entregado')
-    @push('scripts')
-    <script>
-        (function () {
-            var estadoActual = "{{ $pedido->estado }}";
+@push('scripts')
+<script>
+    (function () {
+        var estadoActual = @json($pedido->estado);
+        var url = @json(route('pedido.estado', $pedido));
+        var minutos = document.getElementById('minutos');
+        var hora = document.getElementById('hora-estimada');
 
-            // Cada 5 segundos revisa si la cafetería cambió el estado del pedido
-            setInterval(function () {
-                fetch("{{ route('pedido.estado', $pedido) }}", { headers: { 'Accept': 'application/json' } })
-                    .then(function (r) { return r.json(); })
-                    .then(function (d) {
-                        if (d.estado === estadoActual) { return; }
+        function consultar() {
+            fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+                .then(function (r) { return r.ok ? r.json() : null; })
+                .then(function (d) {
+                    if (!d) { return; }
+                    if (d.estado !== estadoActual) {
+                        window.location.reload();
+                        return;
+                    }
+                    if (minutos && d.minutos_restantes !== null) { minutos.textContent = d.minutos_restantes; }
+                    if (hora && d.listo_estimado) { hora.textContent = d.listo_estimado; }
+                })
+                .catch(function () {});
+        }
 
-                        var aviso = document.createElement('div');
-                        aviso.className = 'toast';
-                        aviso.textContent = d.estado === 'listo'
-                            ? '🔔 ¡Tu pedido está listo para recoger!'
-                            : 'Tu pedido cambió a: ' + d.texto;
-                        document.body.appendChild(aviso);
-
-                        setTimeout(function () { window.location.reload(); }, 1800);
-                    })
-                    .catch(function () {});
-            }, 5000);
-        })();
-    </script>
-    @endpush
-@endif
+        if (estadoActual !== 'entregado' && estadoActual !== 'cancelado') {
+            setInterval(consultar, 5000);
+        } else {
+            var aviso = document.getElementById('aviso-auto');
+            if (aviso) { aviso.style.display = 'none'; }
+        }
+    })();
+</script>
+@endpush

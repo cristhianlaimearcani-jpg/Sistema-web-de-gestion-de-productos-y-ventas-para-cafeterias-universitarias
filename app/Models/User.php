@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
@@ -10,19 +11,19 @@ class User extends Authenticatable
 {
     use HasFactory, Notifiable;
 
-    protected $fillable = [
-        'name',
-        'email',
-        'telefono',
-        'foto',
-        'rol',
-        'password',
+    public const ROL_CLIENTE = 'cliente';
+    public const ROL_EMPLEADO = 'empleado';
+    public const ROL_ADMIN = 'administrador';
+
+    public const ROLES = [
+        self::ROL_CLIENTE => 'Cliente',
+        self::ROL_EMPLEADO => 'Empleado',
+        self::ROL_ADMIN => 'Administrador',
     ];
 
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
+    protected $fillable = ['name', 'email', 'telefono', 'foto', 'rol', 'password'];
+
+    protected $hidden = ['password', 'remember_token'];
 
     protected function casts(): array
     {
@@ -32,31 +33,63 @@ class User extends Authenticatable
         ];
     }
 
-    public function pedidos()
+    public function pedidos(): HasMany
     {
         return $this->hasMany(Pedido::class);
     }
 
-    // El pedido que el usuario está armando (todavía sin pagar)
-    public function pedidoPendiente(): ?Pedido
+    /** Pedido que el cliente está armando o que espera pago. */
+    public function pedidoEnCurso(): ?Pedido
     {
         return $this->pedidos()
-            ->where('estado', 'pendiente')
-            ->with('detalles.producto')
+            ->whereIn('estado', [Pedido::CARRITO, Pedido::PENDIENTE_PAGO])
             ->latest('id')
             ->first();
     }
 
-    // Iniciales para el avatar cuando no hay foto (ej. "Jhon Barros" -> "JB")
-    public function getInicialesAttribute(): string
+    public function esAdministrador(): bool
     {
-        $partes = preg_split('/\s+/', trim($this->name));
-        $ini = mb_substr($partes[0] ?? '', 0, 1);
+        return $this->rol === self::ROL_ADMIN;
+    }
 
-        if (count($partes) > 1) {
-            $ini .= mb_substr(end($partes), 0, 1);
-        }
+    public function esEmpleado(): bool
+    {
+        return $this->rol === self::ROL_EMPLEADO;
+    }
 
-        return mb_strtoupper($ini);
+    public function esCliente(): bool
+    {
+        return $this->rol === self::ROL_CLIENTE;
+    }
+
+    /** Empleado o administrador. */
+    public function esPersonal(): bool
+    {
+        return $this->esEmpleado() || $this->esAdministrador();
+    }
+
+    /** Nombre de la ruta a la que entra cada rol al iniciar sesión. */
+    public function rutaInicio(): string
+    {
+        return match ($this->rol) {
+            self::ROL_ADMIN => 'admin.panel',
+            self::ROL_EMPLEADO => 'entregas.index',
+            default => 'dashboard',
+        };
+    }
+
+    public function getRolTextoAttribute(): string
+    {
+        return self::ROLES[$this->rol] ?? ucfirst((string) $this->rol);
+    }
+
+    public function getInicialAttribute(): string
+    {
+        return mb_strtoupper(mb_substr(trim((string) $this->name), 0, 1)) ?: '?';
+    }
+
+    public function getFotoUrlAttribute(): ?string
+    {
+        return $this->foto ? asset('fotos/'.$this->foto) : null;
     }
 }

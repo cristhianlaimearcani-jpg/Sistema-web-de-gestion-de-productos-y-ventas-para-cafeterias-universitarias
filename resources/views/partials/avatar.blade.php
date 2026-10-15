@@ -1,15 +1,6 @@
-@php
-    $tam = $tam ?? 38;
-@endphp
-
-@if ($user->foto)
-    <img class="avatar"
-         src="{{ asset($user->foto) }}?v={{ $user->updated_at->timestamp }}"
-         alt="Foto de {{ $user->name }}"
-         style="width: {{ $tam }}px; height: {{ $tam }}px;">
+@php($tam = $tam ?? 40)
+@if ($user->foto_url)
+    <img class="avatar" src="{{ $user->foto_url }}" alt="Foto de {{ $user->name }}" width="{{ $tam }}" height="{{ $tam }}" style="width:{{ $tam }}px;height:{{ $tam }}px">
 @else
-    <span class="avatar inicial"
-          style="width: {{ $tam }}px; height: {{ $tam }}px; font-size: {{ round($tam * 0.4) }}px;">
-        {{ $user->iniciales }}
-    </span>
+    <span class="avatar inicial" style="width:{{ $tam }}px;height:{{ $tam }}px;font-size:{{ round($tam * 0.42) }}px">{{ $user->inicial }}</span>
 @endif

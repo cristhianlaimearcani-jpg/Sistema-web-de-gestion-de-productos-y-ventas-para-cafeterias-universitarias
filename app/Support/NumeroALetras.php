@@ -4,83 +4,69 @@ namespace App\Support;
 
 class NumeroALetras
 {
-    private const UNIDADES = [
-        'cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve',
-        'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete',
-        'dieciocho', 'diecinueve', 'veinte', 'veintiuno', 'veintidós', 'veintitrés',
-        'veinticuatro', 'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve',
-    ];
+    private const UNIDADES = ['', 'UN', 'DOS', 'TRES', 'CUATRO', 'CINCO', 'SEIS', 'SIETE', 'OCHO', 'NUEVE',
+        'DIEZ', 'ONCE', 'DOCE', 'TRECE', 'CATORCE', 'QUINCE', 'DIECISÉIS', 'DIECISIETE', 'DIECIOCHO', 'DIECINUEVE',
+        'VEINTE', 'VEINTIÚN', 'VEINTIDÓS', 'VEINTITRÉS', 'VEINTICUATRO', 'VEINTICINCO', 'VEINTISÉIS', 'VEINTISIETE', 'VEINTIOCHO', 'VEINTINUEVE'];
 
-    private const DECENAS = [
-        3 => 'treinta', 4 => 'cuarenta', 5 => 'cincuenta', 6 => 'sesenta',
-        7 => 'setenta', 8 => 'ochenta', 9 => 'noventa',
-    ];
+    private const DECENAS = [3 => 'TREINTA', 4 => 'CUARENTA', 5 => 'CINCUENTA', 6 => 'SESENTA', 7 => 'SETENTA', 8 => 'OCHENTA', 9 => 'NOVENTA'];
 
-    private const CENTENAS = [
-        1 => 'ciento', 2 => 'doscientos', 3 => 'trescientos', 4 => 'cuatrocientos',
-        5 => 'quinientos', 6 => 'seiscientos', 7 => 'setecientos', 8 => 'ochocientos',
-        9 => 'novecientos',
-    ];
+    private const CENTENAS = [1 => 'CIENTO', 2 => 'DOSCIENTOS', 3 => 'TRESCIENTOS', 4 => 'CUATROCIENTOS', 5 => 'QUINIENTOS',
+        6 => 'SEISCIENTOS', 7 => 'SETECIENTOS', 8 => 'OCHOCIENTOS', 9 => 'NOVECIENTOS'];
 
-    // Ej.: 23 -> "Son: Veintitrés 00/100 bolivianos"
-    public static function bolivianos(float|int|string $monto): string
+    /** Ejemplo: 23.5 => "VEINTITRÉS 50/100 BOLIVIANOS" */
+    public static function convertir(float $monto): string
     {
-        $monto = round((float) $monto, 2);
+        $monto = round($monto, 2);
         $entero = (int) floor($monto);
         $centavos = (int) round(($monto - $entero) * 100);
 
-        if ($centavos === 100) {
-            $entero++;
-            $centavos = 0;
-        }
+        $texto = $entero === 0 ? 'CERO' : self::miles($entero);
 
-        $texto = self::texto($entero);
-        $texto = mb_strtoupper(mb_substr($texto, 0, 1)) . mb_substr($texto, 1);
-
-        return 'Son: ' . $texto . ' ' . str_pad((string) $centavos, 2, '0', STR_PAD_LEFT) . '/100 bolivianos';
+        return sprintf('%s %02d/100 BOLIVIANOS', $texto, $centavos);
     }
 
-    public static function texto(int $n, bool $apocope = false): string
+    private static function miles(int $n): string
+    {
+        if ($n >= 1000000) {
+            return (string) $n;
+        }
+        if ($n >= 1000) {
+            $mil = intdiv($n, 1000);
+            $resto = $n % 1000;
+            $prefijo = $mil === 1 ? 'MIL' : self::centenas($mil).' MIL';
+
+            return trim($prefijo.' '.($resto ? self::centenas($resto) : ''));
+        }
+
+        return self::centenas($n);
+    }
+
+    private static function centenas(int $n): string
+    {
+        if ($n === 100) {
+            return 'CIEN';
+        }
+
+        $c = intdiv($n, 100);
+        $resto = $n % 100;
+        $texto = $c ? self::CENTENAS[$c] : '';
+
+        if ($resto === 0) {
+            return trim($texto);
+        }
+
+        return trim($texto.' '.self::decenas($resto));
+    }
+
+    private static function decenas(int $n): string
     {
         if ($n < 30) {
-            if ($apocope && $n === 1) {
-                return 'un';
-            }
-            if ($apocope && $n === 21) {
-                return 'veintiún';
-            }
-
             return self::UNIDADES[$n];
         }
 
-        if ($n < 100) {
-            $unidad = $n % 10;
+        $d = intdiv($n, 10);
+        $u = $n % 10;
 
-            return self::DECENAS[intdiv($n, 10)] . ($unidad ? ' y ' . self::texto($unidad, $apocope) : '');
-        }
-
-        if ($n === 100) {
-            return 'cien';
-        }
-
-        if ($n < 1000) {
-            $resto = $n % 100;
-
-            return self::CENTENAS[intdiv($n, 100)] . ($resto ? ' ' . self::texto($resto, $apocope) : '');
-        }
-
-        if ($n < 1000000) {
-            $miles = intdiv($n, 1000);
-            $resto = $n % 1000;
-            $prefijo = $miles === 1 ? 'mil' : self::texto($miles, true) . ' mil';
-
-            return $prefijo . ($resto ? ' ' . self::texto($resto, $apocope) : '');
-        }
-
-        $millones = intdiv($n, 1000000);
-        $resto = $n % 1000000;
-        $prefijo = $millones === 1 ? 'un millón' : self::texto($millones, true) . ' millones';
-
-        return $prefijo . ($resto ? ' ' . self::texto($resto, $apocope) : '');
+        return self::DECENAS[$d].($u ? ' Y '.self::UNIDADES[$u] : '');
     }
 }

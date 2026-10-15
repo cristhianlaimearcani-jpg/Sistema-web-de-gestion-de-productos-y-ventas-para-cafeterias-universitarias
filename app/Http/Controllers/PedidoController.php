@@ -3,188 +3,267 @@
 namespace App\Http\Controllers;
 
 use App\Models\DetallePedido;
+use App\Models\Pago;
 use App\Models\Pedido;
 use App\Models\Producto;
+use App\Support\Qr;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\View\View;
 
 class PedidoController extends Controller
 {
-    // ---------- HU-15: Historial de pedidos ----------
-    public function historial(Request $request)
-    {
-        $pedidos = $request->user()
-            ->pedidos()
-            ->with('detalles.producto', 'factura')
-            ->latest()
-            ->get();
+    private const MAX_POR_PRODUCTO = 20;
 
-        return view('pedidos.historial', compact('pedidos'));
+    /** Mi pedido: el carrito, o el pedido que espera pago. */
+    public function actual(Request $request): View
+    {
+        $pedido = $request->user()->pedidoEnCurso();
+        $pedido?->load('detalles.producto');
+
+        return view('pedidos.actual', ['pedido' => $pedido]);
     }
 
-    // ---------- HU-09: Seleccionar productos y generar pedido ----------
-
-    // Ver el pedido que se está armando
-    public function actual(Request $request)
+    public function agregar(Request $request, Producto $producto): RedirectResponse
     {
-        $pedido = $request->user()->pedidoPendiente();
+        $datos = $request->validate([
+            'cantidad' => ['nullable', 'integer', 'min:1', 'max:'.self::MAX_POR_PRODUCTO],
+        ], [
+            'cantidad.integer' => 'La cantidad debe ser un número entero.',
+            'cantidad.min' => 'La cantidad mínima es 1.',
+            'cantidad.max' => 'Puedes pedir hasta '.self::MAX_POR_PRODUCTO.' unidades de cada producto.',
+        ]);
 
-        return view('pedidos.actual', compact('pedido'));
-    }
-
-    // Agregar un producto (uno o varios) al pedido
-    public function agregar(Request $request, Producto $producto)
-    {
-        // HU-08: los productos agotados no se pueden seleccionar
         if (! $producto->disponible) {
-            return back()->with('error', 'Ese producto está agotado y no se puede agregar.');
+            return back()->with('error', $producto->nombre.' está agotado por ahora.');
         }
 
-        $datos = $request->validate([
-            'cantidad' => ['nullable', 'integer', 'min:1', 'max:10'],
-        ], [
-            'cantidad.integer' => 'La cantidad debe ser un número.',
-            'cantidad.min'     => 'La cantidad mínima es 1.',
-            'cantidad.max'     => 'Puedes agregar hasta 10 unidades a la vez.',
-        ]);
+        $usuario = $request->user();
+        $pedido = $usuario->pedidos()->where('estado', Pedido::CARRITO)->latest('id')->first();
+
+        if (! $pedido) {
+            if ($usuario->pedidos()->where('estado', Pedido::PENDIENTE_PAGO)->exists()) {
+                return redirect()->route('pedido.actual')
+                    ->with('error', 'Tienes un pedido esperando pago. Págalo, modifícalo o cancélalo antes de agregar más productos.');
+            }
+            $pedido = Pedido::create(['user_id' => $usuario->id, 'estado' => Pedido::CARRITO, 'total' => 0]);
+        }
 
         $cantidad = (int) ($datos['cantidad'] ?? 1);
-
-        $pedido = $request->user()->pedidoPendiente();
-
-        if ($pedido && $pedido->tienePagoEnProceso()) {
-            return $this->bloqueado();
-        }
-
-        $pedido ??= Pedido::create([
-            'user_id' => $request->user()->id,
-            'estado'  => 'pendiente',
-            'total'   => 0,
-        ]);
-
         $detalle = $pedido->detalles()->where('producto_id', $producto->id)->first();
 
         if ($detalle) {
-            $detalle->cantidad = min(20, $detalle->cantidad + $cantidad);
-            $detalle->save();
+            $detalle->update([
+                'cantidad' => min(self::MAX_POR_PRODUCTO, $detalle->cantidad + $cantidad),
+                'nombre' => $producto->nombre,
+                'precio_unitario' => $producto->precio,
+            ]);
         } else {
             $pedido->detalles()->create([
-                'producto_id'     => $producto->id,
-                'cantidad'        => $cantidad,
+                'producto_id' => $producto->id,
+                'nombre' => $producto->nombre,
                 'precio_unitario' => $producto->precio,
+                'cantidad' => $cantidad,
             ]);
         }
 
         $pedido->recalcularTotal();
 
-        return back()->with('status', $producto->nombre . ' se agregó a tu pedido.');
+        return back()->with('exito', $producto->nombre.' se agregó a tu pedido.');
     }
 
-    // Cambiar la cantidad de un producto del pedido
-    public function actualizar(Request $request, DetallePedido $detalle)
+    public function cambiar(Request $request, DetallePedido $detalle): RedirectResponse
     {
-        $pedido = $this->pedidoModificable($request, $detalle);
-
-        if ($pedido->tienePagoEnProceso()) {
-            return $this->bloqueado();
-        }
+        $pedido = $this->pedidoEditable($request, $detalle);
 
         $datos = $request->validate([
-            'cantidad' => ['required', 'integer', 'min:1', 'max:20'],
+            'cantidad' => ['required', 'integer', 'min:1', 'max:'.self::MAX_POR_PRODUCTO],
         ], [
-            'cantidad.required' => 'Escribe una cantidad.',
-            'cantidad.integer'  => 'La cantidad debe ser un número.',
-            'cantidad.min'      => 'La cantidad mínima es 1.',
-            'cantidad.max'      => 'La cantidad máxima es 20.',
+            'cantidad.required' => 'Escribe la cantidad.',
+            'cantidad.integer' => 'La cantidad debe ser un número entero.',
+            'cantidad.min' => 'La cantidad mínima es 1.',
+            'cantidad.max' => 'Puedes pedir hasta '.self::MAX_POR_PRODUCTO.' unidades de cada producto.',
         ]);
 
-        $detalle->update(['cantidad' => $datos['cantidad']]);
+        $detalle->update(['cantidad' => (int) $datos['cantidad']]);
         $pedido->recalcularTotal();
 
-        return back()->with('status', 'Cantidad actualizada.');
+        return back()->with('exito', 'Actualizamos la cantidad.');
     }
 
-    // Quitar un producto del pedido
-    public function quitar(Request $request, DetallePedido $detalle)
+    public function quitar(Request $request, DetallePedido $detalle): RedirectResponse
     {
-        $pedido = $this->pedidoModificable($request, $detalle);
-
-        if ($pedido->tienePagoEnProceso()) {
-            return $this->bloqueado();
-        }
-
+        $pedido = $this->pedidoEditable($request, $detalle);
         $detalle->delete();
+        $pedido->recalcularTotal();
 
         if ($pedido->detalles()->count() === 0) {
             $pedido->delete();
 
-            return redirect()->route('dashboard')->with('status', 'Tu pedido quedó vacío.');
+            return redirect()->route('dashboard')->with('exito', 'Quitaste el producto. Tu pedido quedó vacío.');
         }
 
-        $pedido->recalcularTotal();
-
-        return back()->with('status', 'Producto quitado del pedido.');
+        return back()->with('exito', 'Quitaste el producto de tu pedido.');
     }
 
-    // Cancelar todo el pedido que se está armando
-    public function vaciar(Request $request)
+    /** Pantalla "Último paso": datos de facturación y forma de pago. */
+    public function confirmar(Request $request): View|RedirectResponse
     {
-        $pedido = $request->user()->pedidoPendiente();
+        $pedido = $request->user()->pedidos()->where('estado', Pedido::CARRITO)->latest('id')->first();
+
+        if (! $pedido || $pedido->detalles()->count() === 0) {
+            return redirect()->route('pedido.actual')->with('error', 'Primero agrega productos a tu pedido.');
+        }
+
+        if ($problema = $this->revisarDisponibilidad($pedido)) {
+            return redirect()->route('pedido.actual')->with('error', $problema);
+        }
+
+        $pedido->load('detalles');
+
+        return view('pedidos.confirmar', ['pedido' => $pedido, 'usuario' => $request->user()]);
+    }
+
+    /** Guarda los datos, deja el pedido pendiente de pago y abre la pantalla de pago elegida. */
+    public function pagar(Request $request): RedirectResponse
+    {
+        $request->merge([
+            'razon_social' => preg_replace('/\s+/u', ' ', trim((string) $request->input('razon_social'))) ?: null,
+            'nit_ci' => preg_replace('/\s+/', '', (string) $request->input('nit_ci')) ?: null,
+        ]);
+
+        $datos = $request->validate([
+            'metodo' => ['required', 'in:'.Pago::METODO_QR.','.Pago::METODO_EFECTIVO],
+            'razon_social' => ['nullable', 'string', 'max:80', "regex:/^[\\pL\\d\\s.,&'()-]+$/u"],
+            'nit_ci' => ['nullable', 'regex:/^\d{5,13}$/'],
+        ], [
+            'metodo.required' => 'Elige cómo quieres pagar.',
+            'metodo.in' => 'La forma de pago elegida no es válida.',
+            'razon_social.max' => 'El nombre para la factura es muy largo (máximo 80).',
+            'razon_social.regex' => 'El nombre para la factura tiene caracteres no permitidos.',
+            'nit_ci.regex' => 'El NIT o CI debe tener solo números (entre 5 y 13 dígitos).',
+        ]);
+
+        $pedido = $request->user()->pedidos()->where('estado', Pedido::CARRITO)->latest('id')->first();
+
+        if (! $pedido || $pedido->detalles()->count() === 0) {
+            return redirect()->route('pedido.actual')->with('error', 'Tu pedido está vacío.');
+        }
+
+        if ($problema = $this->revisarDisponibilidad($pedido)) {
+            return redirect()->route('pedido.actual')->with('error', $problema);
+        }
+
+        $pedido->update([
+            'estado' => Pedido::PENDIENTE_PAGO,
+            'razon_social' => $datos['razon_social'] ?? null,
+            'nit_ci' => $datos['nit_ci'] ?? null,
+        ]);
+
+        $pago = Pago::iniciarPara($pedido, $datos['metodo']);
+
+        return redirect()->route('pago.show', $pago);
+    }
+
+    /** Volver a la pantalla de pago de un pedido que ya estaba pendiente. */
+    public function continuar(Request $request): RedirectResponse
+    {
+        $pedido = $request->user()->pedidos()->where('estado', Pedido::PENDIENTE_PAGO)->latest('id')->first();
+
+        if (! $pedido) {
+            return redirect()->route('pedido.actual');
+        }
+
+        $pago = $pedido->pagoActivo();
+        if (! $pago || $pago->estaVencido()) {
+            $metodo = $pedido->pagos()->latest('id')->value('metodo') ?? Pago::METODO_QR;
+            $pago = Pago::iniciarPara($pedido, $metodo);
+        }
+
+        return redirect()->route('pago.show', $pago);
+    }
+
+    /** Pedido pendiente de pago que el cliente quiere cambiar: vuelve a ser carrito. */
+    public function modificar(Request $request): RedirectResponse
+    {
+        $pedido = $request->user()->pedidos()->where('estado', Pedido::PENDIENTE_PAGO)->latest('id')->first();
 
         if ($pedido) {
-            if ($pedido->tienePagoEnProceso()) {
-                return $this->bloqueado();
+            if ($pedido->pagos()->where('estado', 'recibido')->exists()) {
+                return redirect()->route('pedido.continuar')
+                    ->with('error', 'Ya recibimos tu pago: confirma el código de tu correo para terminar. Si quieres, puedes cancelar el pedido.');
             }
-
-            $pedido->detalles()->delete();
-            $pedido->delete();
+            $pedido->pagos()->whereIn('estado', Pago::ABIERTOS)->update(['estado' => 'cancelado']);
+            $pedido->update(['estado' => Pedido::CARRITO]);
         }
 
-        return redirect()->route('dashboard')->with('status', 'Pedido cancelado.');
+        return redirect()->route('pedido.actual')->with('exito', 'Puedes modificar tu pedido.');
     }
 
-    // Revisar y confirmar el pedido antes de pagar
-    public function confirmar(Request $request)
+    public function historial(Request $request): View
     {
-        $pedido = $request->user()->pedidoPendiente();
+        $pedidos = $request->user()->pedidos()
+            ->where('estado', '!=', Pedido::CARRITO)
+            ->with(['detalles', 'factura'])
+            ->latest('id')
+            ->paginate(8);
 
-        if (! $pedido || $pedido->detalles->isEmpty()) {
-            return redirect()->route('dashboard')->with('error', 'Primero agrega productos a tu pedido.');
-        }
-
-        // Si el pago ya está en proceso, se continúa en esa pantalla
-        $activo = $pedido->pagoActivo();
-
-        if ($activo && in_array($activo->estado, ['por_verificar', 'recibido'], true)) {
-            return redirect()->route('pago.show', $activo);
-        }
-
-        $agotados = $pedido->detalles->filter(fn ($d) => ! $d->producto->disponible);
-
-        if ($agotados->isNotEmpty()) {
-            return redirect()->route('pedido.actual')->with(
-                'error',
-                'Estos productos se agotaron: ' . $agotados->pluck('producto.nombre')->join(', ') . '. Quítalos para continuar.'
-            );
-        }
-
-        return view('pedidos.confirmar', compact('pedido'));
+        return view('pedidos.historial', ['pedidos' => $pedidos]);
     }
 
-    // Solo se puede modificar un pedido propio que todavía no fue pagado
-    private function pedidoModificable(Request $request, DetallePedido $detalle): Pedido
+    /** "¡Gracias por tu compra!" con el código de recojo. */
+    public function exito(Request $request, Pedido $pedido): View|RedirectResponse
+    {
+        abort_unless($pedido->user_id === $request->user()->id, 403);
+
+        if (in_array($pedido->estado, [Pedido::CARRITO, Pedido::PENDIENTE_PAGO], true)) {
+            return redirect()->route('pedido.continuar');
+        }
+        if ($pedido->estado === Pedido::CANCELADO) {
+            return redirect()->route('pedidos.historial')->with('error', 'Ese pedido fue cancelado.');
+        }
+
+        $pedido->load(['detalles', 'factura', 'user']);
+
+        return view('pedidos.exito', [
+            'pedido' => $pedido,
+            'qrRecojo' => Qr::dataUri('CAFEQR|'.$pedido->codigo),
+        ] + ($pedido->factura ? FacturaController::datos($pedido) : []));
+    }
+
+    private function pedidoEditable(Request $request, DetallePedido $detalle): Pedido
     {
         $pedido = $detalle->pedido;
-
-        abort_unless(
-            $pedido->user_id === $request->user()->id && $pedido->estado === 'pendiente',
-            403
-        );
+        abort_unless($pedido->user_id === $request->user()->id && $pedido->estado === Pedido::CARRITO, 403);
 
         return $pedido;
     }
 
-    private function bloqueado()
+    /**
+     * Devuelve un mensaje si algún producto ya no está disponible; si todo está bien,
+     * actualiza los precios al valor actual del menú y devuelve null.
+     */
+    private function revisarDisponibilidad(Pedido $pedido): ?string
     {
-        return back()->with('error', 'Tu pago está en proceso: no puedes cambiar el pedido hasta que termine.');
+        $agotados = [];
+
+        foreach ($pedido->detalles()->with('producto')->get() as $detalle) {
+            if (! $detalle->producto || ! $detalle->producto->disponible) {
+                $agotados[] = $detalle->nombre;
+            }
+        }
+
+        if ($agotados) {
+            return 'Estos productos ya no están disponibles: '.implode(', ', $agotados).'. Quítalos de tu pedido para continuar.';
+        }
+
+        foreach ($pedido->detalles()->with('producto')->get() as $detalle) {
+            if ((float) $detalle->precio_unitario !== (float) $detalle->producto->precio) {
+                $detalle->update(['precio_unitario' => $detalle->producto->precio, 'nombre' => $detalle->producto->nombre]);
+            }
+        }
+        $pedido->recalcularTotal();
+
+        return null;
     }
 }

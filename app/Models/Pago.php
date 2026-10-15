@@ -2,180 +2,117 @@
 
 namespace App\Models;
 
+use App\Services\Notificador;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class Pago extends Model
 {
-    protected $fillable = [
-        'pedido_id', 'monto', 'metodo', 'estado', 'referencia', 'comprobante',
-        'expira_en', 'recibido_en', 'pagado_en', 'detalle',
-    ];
+    public const METODO_QR = 'qr';
+    public const METODO_EFECTIVO = 'efectivo';
+
+    /** Pagos que todavía no terminaron. */
+    public const ABIERTOS = ['pendiente', 'por_verificar', 'recibido', 'por_cobrar'];
+
+    protected $fillable = ['pedido_id', 'metodo', 'referencia', 'monto', 'estado', 'vence_en'];
 
     protected function casts(): array
     {
-        return [
-            'monto'       => 'decimal:2',
-            'expira_en'   => 'datetime',
-            'recibido_en' => 'datetime',
-            'pagado_en'   => 'datetime',
-        ];
+        return ['monto' => 'decimal:2', 'vence_en' => 'datetime'];
     }
 
-    public function pedido()
+    public function pedido(): BelongsTo
     {
         return $this->belongsTo(Pedido::class);
     }
 
-    public function verificaciones()
+    public function verificaciones(): HasMany
     {
         return $this->hasMany(Verificacion::class);
     }
 
-    // Crea un intento de pago (o reutiliza el que sigue activo)
-    public static function iniciarPara(Pedido $pedido): self
+    public function esEfectivo(): bool
     {
-        foreach ($pedido->pagos()->where('estado', 'pendiente')->get() as $anterior) {
-            if ($anterior->expira_en && $anterior->expira_en->isPast()) {
-                $anterior->fallar('El tiempo para pagar venció.');
-            } elseif ((float) $anterior->monto !== (float) $pedido->total) {
-                $anterior->fallar('El monto del pedido cambió.');
-            }
-        }
+        return $this->metodo === self::METODO_EFECTIVO;
+    }
 
-        $activo = $pedido->pagoActivo();
+    /** Crea un pago nuevo y cierra los anteriores que seguían abiertos. */
+    public static function iniciarPara(Pedido $pedido, string $metodo): self
+    {
+        $pedido->pagos()->whereIn('estado', self::ABIERTOS)->update(['estado' => 'cancelado']);
 
-        if ($activo) {
-            return $activo;
-        }
+        $efectivo = $metodo === self::METODO_EFECTIVO;
 
-        return $pedido->pagos()->create([
-            'monto'      => $pedido->total,
-            'metodo'     => config('cafeqr.pago_modo') === 'banco' ? 'banco' : 'demo',
-            'estado'     => 'pendiente',
-            'referencia' => Str::random(40),
-            'expira_en'  => now()->addMinutes((int) config('cafeqr.pago_minutos', 30)),
+        return self::create([
+            'pedido_id' => $pedido->id,
+            'metodo' => $metodo,
+            'referencia' => Str::upper(Str::random(24)),
+            'monto' => $pedido->total,
+            'estado' => $efectivo ? 'por_cobrar' : 'pendiente',
+            'vence_en' => $efectivo ? null : now()->addMinutes(max(1, (int) config('cafeqr.pago_minutos'))),
         ]);
     }
 
+    public function estaVencido(): bool
+    {
+        return $this->estado === 'pendiente' && $this->vence_en && $this->vence_en->isPast();
+    }
+
+    /** Si el QR venció sin pagarse, lo marca como fallido. */
     public function refrescarVencimiento(): void
     {
-        if ($this->estado === 'pendiente' && $this->expira_en && $this->expira_en->isPast()) {
-            $this->update([
-                'estado'  => 'fallido',
-                'detalle' => 'El tiempo para pagar venció.',
-            ]);
+        if ($this->estaVencido()) {
+            $this->update(['estado' => 'fallido']);
         }
     }
 
-    // Solo se puede marcar como fallido un pago que todavía no llegó
-    public function fallar(string $motivo): void
+    public function marcarPorVerificar(): void
     {
-        if (in_array($this->estado, ['pendiente', 'por_verificar'], true)) {
-            $this->update(['estado' => 'fallido', 'detalle' => $motivo]);
+        if ($this->estado === 'pendiente') {
+            $this->update(['estado' => 'por_verificar']);
         }
     }
 
-    // El estudiante dice "ya pagué" (modo banco): queda esperando que la cafetería lo confirme
-    public function marcarPorVerificar(?string $comprobante): string
+    /** Se recibió el dinero: se envía el código al correo. Devuelve true si el correo salió. */
+    public function marcarRecibido(): bool
     {
-        $this->refrescarVencimiento();
+        $this->update(['estado' => 'recibido']);
 
-        if ($this->estado !== 'pendiente') {
-            return $this->estado;
+        return Verificacion::enviarA($this->load('pedido.user'));
+    }
+
+    public function rechazar(): void
+    {
+        if (in_array($this->estado, self::ABIERTOS, true)) {
+            $this->update(['estado' => 'fallido']);
         }
-
-        $this->update([
-            'estado'      => 'por_verificar',
-            'comprobante' => $comprobante ? trim($comprobante) : null,
-        ]);
-
-        return 'por_verificar';
     }
 
-    // El dinero llegó. Devuelve: recibido | ya_recibido | fallido | vencido | pedido_cerrado
-    // Después de esto hay que llamar a enviarCodigo() para mandar el código al correo.
-    public function marcarRecibido(): string
+    /** Termina el pago: el pedido queda pagado, con código de recojo y factura. */
+    public function completar(): bool
     {
-        return DB::transaction(function () {
-            $pago = static::query()->whereKey($this->id)->lockForUpdate()->first();
+        $pedido = $this->pedido;
 
-            if (in_array($pago->estado, ['recibido', 'pagado'], true)) {
-                return 'ya_recibido';
-            }
-
-            if ($pago->estado === 'fallido') {
-                return 'fallido';
-            }
-
-            if ($pago->estado === 'pendiente' && $pago->expira_en && $pago->expira_en->isPast()) {
-                $pago->update(['estado' => 'fallido', 'detalle' => 'El tiempo para pagar venció.']);
-
-                return 'vencido';
-            }
-
-            if ($pago->pedido->estado !== 'pendiente') {
-                return 'pedido_cerrado';
-            }
-
-            $pago->update(['estado' => 'recibido', 'recibido_en' => now()]);
-
-            $this->refresh();
-
-            return 'recibido';
-        });
-    }
-
-    // Envía al correo del estudiante el código de 6 dígitos para confirmar
-    public function enviarCodigo(): bool
-    {
-        try {
-            Verificacion::enviarA($this);
-
-            return true;
-        } catch (\Throwable $e) {
-            report($e);
-
+        if ($pedido->estado !== Pedido::PENDIENTE_PAGO) {
             return false;
         }
-    }
 
-    // Se llama cuando el estudiante escribió bien el código:
-    // pedido pagado + código de recojo + factura. Devuelve: completado | ya_pagado | no_recibido
-    public function completar(): string
-    {
-        return DB::transaction(function () {
-            $pago = static::query()->whereKey($this->id)->lockForUpdate()->first();
-            $pedido = $pago->pedido;
-
-            if ($pago->estado === 'pagado') {
-                return 'ya_pagado';
-            }
-
-            if ($pago->estado !== 'recibido') {
-                return 'no_recibido';
-            }
-
-            $pago->update(['estado' => 'pagado', 'pagado_en' => now()]);
-
+        DB::transaction(function () use ($pedido) {
+            $this->update(['estado' => 'completado']);
             $pedido->update([
-                'estado'        => 'pagado',
-                'pagado_en'     => now(),
-                'codigo_recojo' => Pedido::generarCodigoUnico(),
+                'estado' => Pedido::PAGADO,
+                'pagado_en' => now(),
+                'metodo_pago' => $this->metodo,
+                'codigo' => $pedido->codigo ?: Pedido::generarCodigoUnico(),
             ]);
-
             Factura::emitir($pedido);
-
-            // Los demás intentos de este pedido quedan anulados
-            $pedido->pagos()
-                ->whereIn('estado', ['pendiente', 'por_verificar'])
-                ->where('id', '!=', $pago->id)
-                ->update(['estado' => 'fallido', 'detalle' => 'El pedido se pagó con otro intento.']);
-
-            $this->refresh();
-
-            return 'completado';
         });
+
+        Notificador::pagoConfirmado($pedido->fresh(['user', 'factura', 'detalles']));
+
+        return true;
     }
 }

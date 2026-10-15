@@ -9,22 +9,20 @@ class CorreoInstitucional implements ValidationRule
 {
     public function validate(string $attribute, mixed $value, Closure $fail): void
     {
-        // Se pueden permitir varios dominios separados por coma en el .env
-        // Ej.: DOMINIO_INSTITUCIONAL=univalle.edu,gmail.com
-        $dominios = array_values(array_filter(array_map(
-            'trim',
-            explode(',', strtolower((string) config('cafeqr.dominio_institucional')))
-        )));
+        $correo = strtolower(trim((string) $value));
+        $host = substr(strrchr($correo, '@') ?: '', 1);
 
-        $correo = strtolower((string) $value);
-        $parte  = substr(strrchr($correo, '@') ?: '', 1);
+        $dominios = array_filter(array_map(
+            fn ($d) => strtolower(trim($d)),
+            explode(',', (string) config('cafeqr.dominio'))
+        ));
 
         foreach ($dominios as $dominio) {
-            if ($parte === $dominio || str_ends_with($parte, '.' . $dominio)) {
+            if ($host === $dominio || str_ends_with($host, '.'.$dominio)) {
                 return;
             }
         }
 
-        $fail('El correo debe pertenecer a un dominio permitido (@' . implode(', @', $dominios) . ').');
+        $fail('Usa tu correo institucional (por ejemplo: tunombre@est.'.($dominios[0] ?? 'univalle.edu').').');
     }
 }

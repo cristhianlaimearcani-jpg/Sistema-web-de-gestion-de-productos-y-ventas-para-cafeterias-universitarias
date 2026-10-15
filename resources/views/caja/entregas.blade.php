@@ -1,119 +1,135 @@
-@extends('layouts.panel')
+@extends('layouts.app')
 
 @section('titulo', 'Entregas')
 
 @section('contenido')
-    <h1>Entregas</h1>
-    <p class="ayuda">
-        Pídele al estudiante su código de recojo, escríbelo aquí y entrega el pedido.
-        Al marcarlo "Listo para recoger", el estudiante recibe un aviso en su correo y en su pantalla.
-    </p>
+    <div class="cabecera-pagina">
+        <div>
+            <h1>Entregas</h1>
+            <p class="subtitulo" style="margin:0">Prepara los pedidos, avisa cuándo estarán listos y entrégalos con su código.</p>
+        </div>
+        <a class="btn gris" href="{{ route('caja.pagos') }}">Ir a Caja →</a>
+    </div>
+
+    <form class="buscar-codigo" method="GET" action="{{ route('entregas.index') }}">
+        <input type="search" name="q" value="{{ $buscar }}" placeholder="Buscar por código de recojo, N.º de pedido o nombre" maxlength="40" aria-label="Buscar pedido">
+        <button type="submit" class="btn">Buscar</button>
+        @if ($buscar !== '') <a class="btn gris" href="{{ route('entregas.index') }}">Limpiar</a> @endif
+    </form>
 
     <section class="tarjeta">
-        <form method="GET" action="{{ route('caja.entregas') }}" class="buscador-codigo">
-            <div>
-                <label for="codigo">Código de recojo</label>
-                <input type="text" id="codigo" name="codigo" value="{{ $codigo }}" maxlength="6"
-                       placeholder="ABC123" autocomplete="off" autofocus>
-            </div>
-            <button type="submit" class="btn">Buscar pedido</button>
-        </form>
+        <h2>Pedidos por atender <span class="etiqueta estado-pagado">{{ $activos->count() }}</span></h2>
 
-        @if ($codigo !== '')
-            @if ($encontrado)
-                <div class="resumen-banco">
-                    <div class="pedido-cab">
-                        <strong>Pedido #{{ $encontrado->id }} · {{ $encontrado->user->name }}</strong>
-                        <span class="etiqueta estado-{{ $encontrado->estado }}">{{ $encontrado->estado_texto }}</span>
+        @forelse ($activos as $pedido)
+            <article class="pedido-card {{ $pedido->estado === 'listo' ? 'listo' : '' }}">
+                <div class="pedido-cab">
+                    <div>
+                        <strong>Pedido #{{ $pedido->id }}</strong> · código <span class="codigo">{{ $pedido->codigo }}</span>
                     </div>
-                    <p class="dato">
-                        @foreach ($encontrado->detalles as $detalle)
-                            {{ $detalle->cantidad }} × {{ $detalle->producto->nombre }}@if (! $loop->last), @endif
-                        @endforeach
+                    <span class="etiqueta estado-{{ $pedido->estado }}">{{ $pedido->estado_texto }}</span>
+                </div>
+                <p class="ayuda" style="margin:4px 0 0">
+                    {{ $pedido->user->name }} · {{ $pedido->user->email }}
+                    · Pagó {{ $pedido->metodo_pago === 'efectivo' ? 'en efectivo' : 'con QR' }}
+                    · {{ $pedido->pagado_en?->timezone(config('app.timezone'))->format('H:i') }}
+                </p>
+                <ul class="pedido-items">
+                    @foreach ($pedido->detalles as $detalle)
+                        <li>{{ $detalle->cantidad }} × {{ $detalle->nombre }}</li>
+                    @endforeach
+                </ul>
+
+                @if ($pedido->estado === 'en_preparacion')
+                    <p class="ayuda" style="margin:0">⏱️ Se le dijo al cliente ~{{ $pedido->tiempo_estimado }} min
+                        @if ($pedido->minutosRestantes() !== null) · faltan {{ $pedido->minutosRestantes() }} min @endif
                     </p>
-                    <p class="dato"><strong>Total pagado:</strong> Bs {{ number_format($encontrado->total, 2) }}</p>
+                @endif
 
-                    @if ($encontrado->estado === 'entregado')
-                        <div class="exito">Este pedido ya fue entregado.</div>
-                    @else
-                        <div class="acciones acciones-fila">
-                            @include('caja._acciones', ['pedido' => $encontrado])
-                        </div>
+                <div class="pedido-acciones">
+                    @if (in_array($pedido->estado, ['pagado', 'en_preparacion']))
+                        <form class="form-mini" method="POST" action="{{ route('entregas.preparar', $pedido) }}">
+                            @csrf
+                            <input type="number" name="minutos" min="1" max="180" value="{{ $pedido->tiempo_estimado ?? $tiempoPorDefecto }}" aria-label="Minutos de preparación" required>
+                            <span class="ayuda">min</span>
+                            <button type="submit" class="btn chico">{{ $pedido->estado === 'pagado' ? 'Preparar y avisar' : 'Actualizar tiempo' }}</button>
+                        </form>
+                        <form method="POST" action="{{ route('entregas.listo', $pedido) }}">
+                            @csrf
+                            <button type="submit" class="btn chico verde">✓ Marcar listo</button>
+                        </form>
                     @endif
+
+                    @if ($pedido->estado === 'listo')
+                        <form method="POST" action="{{ route('entregas.entregar', $pedido) }}">
+                            @csrf
+                            <button type="submit" class="btn chico verde">Entregar al cliente</button>
+                        </form>
+                    @endif
+
+                    <details class="cancelar-pedido">
+                        <summary>Cancelar</summary>
+                        <form class="form-mini" method="POST" action="{{ route('entregas.cancelar', $pedido) }}">
+                            @csrf
+                            <input type="text" name="motivo" placeholder="Motivo (obligatorio)" minlength="5" maxlength="200" required>
+                            <button type="submit" class="btn chico rojo">Cancelar pedido</button>
+                        </form>
+                    </details>
                 </div>
-            @else
-                <div class="alerta" style="margin-top:14px;">
-                    No existe ningún pedido pagado con el código <strong>{{ $codigo }}</strong>.
-                </div>
-            @endif
-        @endif
+            </article>
+        @empty
+            <div class="vacio">
+                <span class="grande">☕</span>
+                @if ($buscar !== '') No se encontró ningún pedido con “{{ $buscar }}”. @else No hay pedidos por atender. @endif
+            </div>
+        @endforelse
     </section>
 
-    <section class="tarjeta">
-        <h2>Pedidos por entregar ({{ $activos->count() }})</h2>
-
-        @if ($activos->isEmpty())
-            <p class="sin-datos">No hay pedidos pendientes de entrega.</p>
-        @else
-            <table>
-                <thead>
-                    <tr>
-                        <th>Pedido</th>
-                        <th>Estudiante</th>
-                        <th>Código</th>
-                        <th>Productos</th>
-                        <th>Estado</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($activos as $pedido)
-                        <tr>
-                            <td>#{{ $pedido->id }}</td>
-                            <td>{{ $pedido->user->name }}</td>
-                            <td><span class="codigo">{{ $pedido->codigo_recojo }}</span></td>
-                            <td>
-                                @foreach ($pedido->detalles as $detalle)
-                                    {{ $detalle->cantidad }} × {{ $detalle->producto->nombre }}@if (! $loop->last), @endif
-                                @endforeach
-                            </td>
-                            <td><span class="etiqueta estado-{{ $pedido->estado }}">{{ $pedido->estado_texto }}</span></td>
-                            <td class="acciones-fila">
-                                @include('caja._acciones', ['pedido' => $pedido])
-                            </td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        @endif
-    </section>
+    @if ($reembolsos->count())
+        <section class="tarjeta">
+            <h2>💸 Reembolsos pendientes <span class="etiqueta estado-cancelado">{{ $reembolsos->count() }}</span></h2>
+            <p class="ayuda">Pedidos cancelados que ya estaban pagados: devuelve el dinero al cliente y márcalo.</p>
+            @foreach ($reembolsos as $pedido)
+                <div class="pedido-card">
+                    <div class="pedido-cab">
+                        <strong>Pedido #{{ $pedido->id }} · {{ $pedido->user->name }}</strong>
+                        <strong style="color:var(--guinda)">Bs {{ number_format($pedido->total, 2) }}</strong>
+                    </div>
+                    <p class="ayuda" style="margin:4px 0 0">
+                        Pagó {{ $pedido->metodo_pago === 'efectivo' ? 'en efectivo' : 'con QR' }} ·
+                        cancelado por {{ $pedido->cancelado_por === 'cliente' ? 'el cliente' : 'la cafetería' }}@if ($pedido->motivo_cancelacion): “{{ $pedido->motivo_cancelacion }}”@endif
+                    </p>
+                    <div class="pedido-acciones">
+                        <form method="POST" action="{{ route('entregas.reembolsar', $pedido) }}">
+                            @csrf
+                            <button type="submit" class="btn chico verde">Ya devolví el dinero</button>
+                        </form>
+                    </div>
+                </div>
+            @endforeach
+        </section>
+    @endif
 
     <section class="tarjeta">
-        <h2>Entregados hoy ({{ $entregadosHoy->count() }})</h2>
-
-        @if ($entregadosHoy->isEmpty())
-            <p class="sin-datos">Todavía no se entregó ningún pedido hoy.</p>
+        <h2>Entregados hoy <span class="etiqueta estado-entregado">{{ $entregadosHoy->count() }}</span></h2>
+        @if ($entregadosHoy->count())
+            <div class="tabla-wrap">
+                <table>
+                    <thead><tr><th>Pedido</th><th>Cliente</th><th>Código</th><th class="num">Total</th><th>Hora</th></tr></thead>
+                    <tbody>
+                        @foreach ($entregadosHoy as $pedido)
+                            <tr>
+                                <td>#{{ $pedido->id }}</td>
+                                <td>{{ $pedido->user->name }}</td>
+                                <td><span class="codigo">{{ $pedido->codigo }}</span></td>
+                                <td class="num">Bs {{ number_format($pedido->total, 2) }}</td>
+                                <td>{{ $pedido->entregado_en?->timezone(config('app.timezone'))->format('H:i') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
         @else
-            <table>
-                <thead>
-                    <tr>
-                        <th>Pedido</th>
-                        <th>Estudiante</th>
-                        <th>Código</th>
-                        <th>Hora</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach ($entregadosHoy as $pedido)
-                        <tr>
-                            <td>#{{ $pedido->id }}</td>
-                            <td>{{ $pedido->user->name }}</td>
-                            <td><span class="codigo">{{ $pedido->codigo_recojo }}</span></td>
-                            <td>{{ $pedido->updated_at->format('H:i') }}</td>
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
+            <p class="ayuda">Todavía no se entregó ningún pedido hoy.</p>
         @endif
     </section>
 @endsection

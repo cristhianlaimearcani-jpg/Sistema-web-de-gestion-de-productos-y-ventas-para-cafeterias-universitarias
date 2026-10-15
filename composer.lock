@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "9df5e8f114ae62f28d6a256215d641a7",
+    "content-hash": "98dba7e112ba6e5cf185fda131442b1f",
     "packages": [
         {
             "name": "brick/math",
@@ -142,16 +142,16 @@
         },
         {
             "name": "chillerlan/php-qrcode",
-            "version": "6.0.1",
+            "version": "6.0.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/chillerlan/php-qrcode.git",
-                "reference": "49006e34bd5328f163e80329e7312f34dceea59b"
+                "reference": "320e5990312295926a8707a0203bf238062b4331"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/chillerlan/php-qrcode/zipball/49006e34bd5328f163e80329e7312f34dceea59b",
-                "reference": "49006e34bd5328f163e80329e7312f34dceea59b",
+                "url": "https://api.github.com/repos/chillerlan/php-qrcode/zipball/320e5990312295926a8707a0203bf238062b4331",
+                "reference": "320e5990312295926a8707a0203bf238062b4331",
                 "shasum": ""
             },
             "require": {
@@ -235,7 +235,7 @@
                     "type": "Ko-Fi"
                 }
             ],
-            "time": "2026-03-18T21:21:07+00:00"
+            "time": "2026-03-14T17:16:36+00:00"
         },
         {
             "name": "chillerlan/php-settings-container",

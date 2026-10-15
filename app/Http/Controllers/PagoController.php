@@ -2,307 +2,259 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\PagoConfirmadoMail;
 use App\Models\Pago;
 use App\Models\Pedido;
+use App\Models\Verificacion;
+use App\Services\Notificador;
 use App\Support\Qr;
+use App\Support\UrlPublica;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
+use Illuminate\View\View;
 
 class PagoController extends Controller
 {
-    // ---------- 1. Datos de factura y creación del pago ----------
-    public function iniciar(Request $request)
+    /** Pantalla de pago: QR o efectivo, según lo que eligió el cliente. */
+    public function mostrar(Request $request, Pago $pago): View|RedirectResponse
     {
-        $datos = $request->validate([
-            'razon_social' => ['nullable', 'string', 'max:120'],
-            'nit_ci'       => ['nullable', 'string', 'max:15', 'regex:/^[0-9A-Za-z\-\.]*$/'],
-        ], [
-            'razon_social.max' => 'El nombre o razón social es muy largo.',
-            'nit_ci.max'       => 'El NIT o C.I. es muy largo.',
-            'nit_ci.regex'     => 'El NIT o C.I. solo puede tener letras, números, guion o punto.',
-        ]);
-
-        $pedido = $request->user()->pedidoPendiente();
-
-        if (! $pedido || $pedido->detalles->isEmpty()) {
-            return redirect()->route('dashboard')->with('error', 'Primero agrega productos a tu pedido.');
-        }
-
-        // Si el pago ya está en proceso, se continúa donde se quedó
-        $activo = $pedido->pagoActivo();
-
-        if ($activo && in_array($activo->estado, ['por_verificar', 'recibido'], true)) {
-            return redirect()->route('pago.show', $activo);
-        }
-
-        if ($pedido->detalles->contains(fn ($d) => ! $d->producto->disponible)) {
-            return redirect()->route('pedido.actual')->with('error', 'Hay productos agotados en tu pedido. Quítalos para continuar.');
-        }
-
-        $pedido->update([
-            'razon_social' => trim((string) ($datos['razon_social'] ?? '')) ?: $request->user()->name,
-            'nit_ci'       => trim((string) ($datos['nit_ci'] ?? '')) ?: '0',
-        ]);
-
-        return redirect()->route('pago.show', Pago::iniciarPara($pedido));
-    }
-
-    // ---------- 2. Pantalla del pago: QR, o espera, o código del correo ----------
-    public function show(Request $request, Pago $pago)
-    {
-        $pedido = $this->pedidoDelUsuario($request, $pago);
-
+        $pedido = $this->pedidoDelCliente($request, $pago);
         $pago->refrescarVencimiento();
 
-        if ($pago->estado === 'pagado') {
-            return redirect()->route('pedido.exito', $pedido);
+        if ($destino = $this->destinoSiYaNoAplica($pedido, $pago)) {
+            return $destino;
         }
 
-        $pedido->load('detalles.producto');
-
-        // El dinero ya llegó: falta escribir el código que se envió al correo
-        if ($pago->estado === 'recibido') {
-            return view('pagos.codigo', [
-                'pago'   => $pago,
-                'pedido' => $pedido,
-                'correo' => $this->enmascarar($request->user()->email),
-            ]);
+        if ($pago->esEfectivo()) {
+            return view('pagos.efectivo', ['pago' => $pago, 'pedido' => $pedido->load('detalles')]);
         }
 
-        $modoBanco = $pago->metodo === 'banco';
+        $modoBanco = config('cafeqr.pago_modo') === 'banco';
         $qr = null;
-        $qrBanco = null;
+        $urlQr = null;
+        $qrBancoDisponible = false;
 
-        if ($pago->estado === 'pendiente') {
-            if ($modoBanco) {
-                $ruta = config('cafeqr.qr_cobro');
-                $qrBanco = file_exists(public_path($ruta))
-                    ? asset($ruta) . '?v=' . filemtime(public_path($ruta))
-                    : null;
-            } else {
-                $qr = Qr::dataUri(route('pago.escanear', $pago->referencia));
-            }
+        if ($modoBanco) {
+            $qrBancoDisponible = is_file(public_path(config('cafeqr.qr_cobro')));
+        } elseif ($pago->estado === 'pendiente') {
+            $urlQr = UrlPublica::base($request).route('pagar.escanear', $pago->referencia, false);
+            $qr = Qr::dataUri($urlQr);
         }
 
-        $intentos = $pedido->pagos()->orderBy('id')->get();
-
-        return view('pagos.qr', compact('pago', 'pedido', 'modoBanco', 'qr', 'qrBanco', 'intentos'));
+        return view('pagos.qr', [
+            'pago' => $pago,
+            'pedido' => $pedido->load('detalles'),
+            'modoBanco' => $modoBanco,
+            'qr' => $qr,
+            'urlQr' => $urlQr,
+            'qrBancoDisponible' => $qrBancoDisponible,
+            'enLocalhost' => UrlPublica::esLocal($request->getHost()),
+        ]);
     }
 
-    // La pantalla consulta esto cada pocos segundos para actualizarse sola
-    public function estado(Request $request, Pago $pago)
+    /** La pantalla de pago lo consulta cada 3 segundos. */
+    public function estado(Request $request, Pago $pago): JsonResponse
     {
-        $this->pedidoDelUsuario($request, $pago);
-
+        $pedido = $this->pedidoDelCliente($request, $pago);
         $pago->refrescarVencimiento();
 
-        return response()->json(['estado' => $pago->estado]);
-    }
-
-    // Si el pago falló o venció, se puede intentar de nuevo
-    public function reintentar(Request $request, Pago $pago)
-    {
-        $pedido = $this->pedidoDelUsuario($request, $pago);
-
-        if ($pedido->estado !== 'pendiente') {
-            return redirect()->route('pedidos.historial')->with('error', 'Ese pedido ya no admite pagos.');
+        $siguiente = null;
+        if (in_array($pedido->estado, [Pedido::PAGADO, Pedido::EN_PREPARACION, Pedido::LISTO, Pedido::ENTREGADO], true)) {
+            $siguiente = route('pedido.exito', $pedido);
+        } elseif ($pedido->estado === Pedido::CANCELADO) {
+            $siguiente = route('pedidos.historial');
+        } elseif ($pago->estado === 'recibido') {
+            $siguiente = route('pago.codigo', $pago);
         }
 
-        return redirect()
-            ->route('pago.show', Pago::iniciarPara($pedido))
-            ->with('status', 'Generamos un nuevo código QR.');
+        return response()->json(['estado' => $pago->estado, 'siguiente' => $siguiente]);
     }
 
-    // ---------- Modo "banco": el estudiante avisa que ya pagó ----------
-    public function yaPague(Request $request, Pago $pago)
+    /** QR vencido o rechazado: genera un pago nuevo para el mismo pedido. */
+    public function reintentar(Request $request, Pago $pago): RedirectResponse
     {
-        $this->pedidoDelUsuario($request, $pago);
+        $pedido = $this->pedidoDelCliente($request, $pago);
 
-        abort_unless($pago->metodo === 'banco', 404);
+        if ($pedido->estado !== Pedido::PENDIENTE_PAGO) {
+            return redirect()->route('pedido.actual');
+        }
 
-        $datos = $request->validate([
-            'comprobante' => ['nullable', 'string', 'max:60'],
-        ], [
-            'comprobante.max' => 'El número de comprobante es muy largo.',
-        ]);
+        $nuevo = Pago::iniciarPara($pedido, $pago->metodo);
 
-        $pago->marcarPorVerificar($datos['comprobante'] ?? null);
-
-        return redirect()
-            ->route('pago.show', $pago)
-            ->with('status', 'Avisamos a la cafetería. Cuando confirme tu pago te llegará un código a tu correo.');
+        return redirect()->route('pago.show', $nuevo)->with('exito', 'Generamos un nuevo pago para tu pedido.');
     }
 
-    // ---------- Modo "demo": botones para simular el pago ----------
-    public function simular(Request $request, Pago $pago)
+    /** Modo banco: el cliente avisa que ya pagó; la cafetería lo confirma en Caja. */
+    public function yaPague(Request $request, Pago $pago): RedirectResponse
     {
-        $this->pedidoDelUsuario($request, $pago);
+        $this->pedidoDelCliente($request, $pago);
+        $pago->refrescarVencimiento();
 
-        abort_unless($pago->metodo === 'demo', 404);
-
-        $resultado = $request->validate([
-            'resultado' => ['required', 'in:exito,fallo'],
-        ])['resultado'];
-
-        if ($resultado === 'exito') {
-            $this->registrarRecibido($pago);
-        } else {
-            $pago->fallar('El banco rechazó el pago (simulación).');
+        if ($pago->estado === 'pendiente' && config('cafeqr.pago_modo') === 'banco') {
+            $pago->marcarPorVerificar();
         }
 
         return redirect()->route('pago.show', $pago);
     }
 
-    // ---------- 3. Código que llegó al correo ----------
-    public function comprobarCodigo(Request $request, Pago $pago)
+    /** Modo demo: botón para simular el pago desde la misma computadora. */
+    public function simular(Request $request, Pago $pago): RedirectResponse
     {
-        $pedido = $this->pedidoDelUsuario($request, $pago);
+        $this->pedidoDelCliente($request, $pago);
+        $pago->refrescarVencimiento();
 
-        $request->validate([
-            'codigo' => ['required', 'digits:6'],
-        ], [
-            'codigo.required' => 'Escribe el código que te enviamos al correo.',
-            'codigo.digits'   => 'El código tiene 6 números.',
-        ]);
-
-        if ($pago->estado === 'pagado') {
-            return redirect()->route('pedido.exito', $pedido);
+        if (config('cafeqr.pago_modo') !== 'demo' || $pago->estado !== 'pendiente' || $pago->esEfectivo()) {
+            return redirect()->route('pago.show', $pago);
         }
 
-        if ($pago->estado !== 'recibido') {
-            return redirect()->route('pago.show', $pago)->with('error', 'Todavía no recibimos tu pago.');
-        }
+        $enviado = $pago->marcarRecibido();
 
-        $verificacion = $pago->verificaciones()->whereNull('usado_en')->latest('id')->first();
-
-        if (! $verificacion) {
-            return back()->withErrors(['codigo' => 'No hay un código activo. Presiona "Reenviar código".']);
-        }
-
-        $resultado = $verificacion->comprobar($request->input('codigo'));
-
-        if ($resultado !== 'ok') {
-            $mensaje = match ($resultado) {
-                'incorrecto' => 'El código no es correcto. Te quedan ' . $verificacion->intentosRestantes() . ' intentos.',
-                'bloqueado'  => 'Fallaste demasiadas veces. Presiona "Reenviar código" para recibir uno nuevo.',
-                default      => 'El código venció. Presiona "Reenviar código" para recibir uno nuevo.',
-            };
-
-            return back()->withErrors(['codigo' => $mensaje]);
-        }
-
-        if ($pago->completar() === 'completado') {
-            $this->enviarComprobante($pago->pedido_id);
-        }
-
-        return redirect()->route('pedido.exito', $pedido)->with('gracias', true);
+        return redirect()->route('pago.codigo', $pago)->with($this->avisoCorreo($enviado, $pago));
     }
 
-    public function reenviarCodigo(Request $request, Pago $pago)
+    public function codigo(Request $request, Pago $pago): View|RedirectResponse
     {
-        $this->pedidoDelUsuario($request, $pago);
+        $pedido = $this->pedidoDelCliente($request, $pago);
 
         if ($pago->estado !== 'recibido') {
             return redirect()->route('pago.show', $pago);
         }
 
-        $ultima = $pago->verificaciones()->latest('id')->first();
-
-        if ($ultima && $ultima->created_at->gt(now()->subSeconds(60))) {
-            return back()->with('error', 'Espera un minuto antes de pedir otro código.');
-        }
-
-        if (! $pago->enviarCodigo()) {
-            return back()->with('error', 'No pudimos enviar el correo. Revisa la configuración del correo en el archivo .env.');
-        }
-
-        return back()->with('status', 'Te enviamos un código nuevo a ' . $this->enmascarar($request->user()->email) . '.');
+        return view('pagos.codigo', [
+            'pago' => $pago,
+            'pedido' => $pedido,
+            'correo' => $this->ocultarCorreo($pedido->user->email),
+            'intentos' => Verificacion::intentosRestantes($pago),
+            'modoPrueba' => Notificador::modoPrueba(),
+        ]);
     }
 
-    // ---------- 4. ¡Gracias por tu compra! + factura ----------
-    public function exito(Request $request, Pedido $pedido)
+    public function comprobarCodigo(Request $request, Pago $pago): RedirectResponse
     {
-        abort_unless($pedido->user_id === $request->user()->id, 403);
+        $pedido = $this->pedidoDelCliente($request, $pago);
 
-        if (! $pedido->codigo_recojo) {
-            return redirect()->route('pedidos.historial');
+        if ($pago->estado !== 'recibido') {
+            return redirect()->route('pago.show', $pago);
         }
 
-        $datos = FacturaController::datos($pedido);
-        $qrRecojo = Qr::dataUri($pedido->codigo_recojo);
+        $request->merge(['codigo' => preg_replace('/\s+/', '', (string) $request->input('codigo'))]);
+        $request->validate(['codigo' => ['required', 'digits:6']], [
+            'codigo.required' => 'Escribe el código de 6 dígitos que te enviamos.',
+            'codigo.digits' => 'El código tiene exactamente 6 números.',
+        ]);
 
-        return view('pedidos.exito', $datos + ['qrRecojo' => $qrRecojo]);
+        $resultado = Verificacion::comprobar($pago, (string) $request->input('codigo'));
+
+        if ($resultado === 'ok') {
+            if (! $pago->completar()) {
+                return redirect()->route('pedidos.historial')->with('error', 'El pedido ya no está disponible para pagar.');
+            }
+
+            return redirect()->route('pedido.exito', $pedido)->with('exito', '¡Pago confirmado!');
+        }
+
+        $mensaje = match ($resultado) {
+            'incorrecto' => 'Código incorrecto. Te quedan '.Verificacion::intentosRestantes($pago).' intentos.',
+            'vencido' => 'El código venció. Pide uno nuevo con "Reenviar código".',
+            'bloqueado' => 'Demasiados intentos fallidos. Pide un código nuevo con "Reenviar código".',
+            default => 'No hay un código activo. Pide uno nuevo con "Reenviar código".',
+        };
+
+        return back()->withErrors(['codigo' => $mensaje]);
     }
 
-    // ---------- "App del banco" de demostración (se abre al escanear el QR de prueba) ----------
-    public function escanear(string $referencia)
+    public function reenviarCodigo(Request $request, Pago $pago): RedirectResponse
     {
-        $pago = Pago::where('referencia', $referencia)->firstOrFail();
+        $this->pedidoDelCliente($request, $pago);
 
-        abort_unless($pago->metodo === 'demo', 404);
+        if ($pago->estado !== 'recibido') {
+            return redirect()->route('pago.show', $pago);
+        }
 
+        $ultimo = Verificacion::where('pago_id', $pago->id)->latest('id')->first();
+        if ($ultimo && $ultimo->created_at->diffInSeconds(now()) < 45) {
+            return back()->with('error', 'Espera unos segundos antes de pedir otro código.');
+        }
+
+        $enviado = Verificacion::enviarA($pago->load('pedido.user'));
+
+        return back()->with($this->avisoCorreo($enviado, $pago, 'Te enviamos un código nuevo.'));
+    }
+
+    /* ---------- Páginas públicas del QR de prueba (se abren desde el celular) ---------- */
+
+    public function escanear(string $referencia): View
+    {
+        $pago = $this->pagoDemo($referencia);
         $pago->refrescarVencimiento();
 
-        return view('pagos.escanear', compact('pago'));
+        return view('pagos.escanear', ['pago' => $pago->load('pedido.user'), 'pedido' => $pago->pedido]);
     }
 
-    public function ejecutar(Request $request, string $referencia)
+    public function ejecutar(string $referencia): RedirectResponse
     {
-        $pago = Pago::where('referencia', $referencia)->firstOrFail();
+        $pago = $this->pagoDemo($referencia);
+        $pago->refrescarVencimiento();
 
-        abort_unless($pago->metodo === 'demo', 404);
-
-        if ($request->input('accion') === 'rechazar') {
-            $pago->fallar('Rechazaste el pago desde la app del banco (simulación).');
-            $resultado = 'rechazado';
-        } else {
-            $resultado = $this->registrarRecibido($pago);
+        if ($pago->estado === 'pendiente') {
+            $pago->marcarRecibido();
         }
 
-        return redirect()->route('pago.escanear', $referencia)->with('resultado', $resultado);
+        return redirect()->route('pagar.escanear', $referencia);
     }
 
-    // El dinero llegó: se marca y se envía el código al correo
-    private function registrarRecibido(Pago $pago): string
+    /* ---------- Ayudas ---------- */
+
+    private function pagoDemo(string $referencia): Pago
     {
-        $resultado = $pago->marcarRecibido();
+        abort_unless(config('cafeqr.pago_modo') === 'demo', 404);
 
-        if ($resultado === 'recibido') {
-            $pago->enviarCodigo();
-        }
-
-        return $resultado;
+        return Pago::where('referencia', $referencia)->where('metodo', Pago::METODO_QR)->firstOrFail();
     }
 
-    // Envía "¡Gracias por tu compra!" con el código de recojo y el resumen de la factura
-    private function enviarComprobante(int $pedidoId): void
-    {
-        try {
-            $pedido = Pedido::with('detalles.producto', 'factura', 'user')->find($pedidoId);
-
-            if ($pedido) {
-                Mail::to($pedido->user->email)->send(new PagoConfirmadoMail($pedido));
-            }
-        } catch (\Throwable $e) {
-            report($e); // si el correo falla, la compra igual queda confirmada
-        }
-    }
-
-    private function pedidoDelUsuario(Request $request, Pago $pago): Pedido
+    private function pedidoDelCliente(Request $request, Pago $pago): Pedido
     {
         $pedido = $pago->pedido;
-
         abort_unless($pedido->user_id === $request->user()->id, 403);
 
         return $pedido;
     }
 
-    // juan.perez@dominio -> ju*********@dominio
-    private function enmascarar(string $correo): string
+    private function destinoSiYaNoAplica(Pedido $pedido, Pago $pago): ?RedirectResponse
+    {
+        if (in_array($pedido->estado, [Pedido::PAGADO, Pedido::EN_PREPARACION, Pedido::LISTO, Pedido::ENTREGADO], true)) {
+            return redirect()->route('pedido.exito', $pedido);
+        }
+        if ($pedido->estado === Pedido::CANCELADO) {
+            return redirect()->route('pedidos.historial')->with('error', 'Ese pedido fue cancelado.');
+        }
+        if (in_array($pago->estado, ['cancelado', 'completado'], true) || $pedido->estado !== Pedido::PENDIENTE_PAGO) {
+            return redirect()->route('pedido.actual');
+        }
+        if ($pago->estado === 'recibido') {
+            return redirect()->route('pago.codigo', $pago);
+        }
+
+        return null;
+    }
+
+    private function avisoCorreo(bool $enviado, Pago $pago, string $base = 'Pago recibido.'): array
+    {
+        if (! $enviado) {
+            return ['error' => $base.' Pero no pudimos enviar el código a tu correo. Pulsa "Reenviar código" o avisa en la cafetería.'];
+        }
+        if (Notificador::modoPrueba()) {
+            return ['exito' => $base.' (Modo prueba: el correo no sale a internet, el código está en storage/logs/laravel.log.)'];
+        }
+
+        return ['exito' => $base.' Revisa tu correo: te enviamos un código de 6 dígitos.'];
+    }
+
+    private function ocultarCorreo(string $correo): string
     {
         [$usuario, $dominio] = array_pad(explode('@', $correo, 2), 2, '');
 
-        return mb_substr($usuario, 0, 2) . str_repeat('*', max(1, mb_strlen($usuario) - 2)) . '@' . $dominio;
+        return Str::substr($usuario, 0, 2).str_repeat('*', max(2, Str::length($usuario) - 2)).'@'.$dominio;
     }
 }

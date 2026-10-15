@@ -1,26 +1,8 @@
-@php
-    $t = $tam ?? 44;
-@endphp
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="{{ $t }}" height="{{ $t }}" role="img" aria-label="CafeQR">
-    <defs>
-        <linearGradient id="cqg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#9a1830"/>
-            <stop offset="1" stop-color="#560a1a"/>
-        </linearGradient>
-    </defs>
-    <rect width="64" height="64" rx="16" fill="url(#cqg)"/>
-    <path d="M22 11c-3 4 3 6 0 11M32 9c-3 4 3 6 0 11M42 11c-3 4 3 6 0 11" fill="none" stroke="#e8cfa7" stroke-width="2.4" stroke-linecap="round"/>
-    <path d="M14 27h30v11a11 11 0 0 1-11 11h-8a11 11 0 0 1-11-11V27z" fill="#fff"/>
-    <path d="M44 30h3.5a5.5 5.5 0 0 1 0 11H44" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round"/>
-    <g fill="#7d1126">
-        <rect x="19" y="31" width="7" height="7" rx="1"/>
-        <rect x="32" y="31" width="7" height="7" rx="1"/>
-        <rect x="19" y="42" width="7" height="3" rx="1"/>
-        <rect x="29" y="42" width="3" height="3"/>
-        <rect x="35" y="42" width="4" height="3" rx="1"/>
-    </g>
-    <g fill="#fff">
-        <rect x="21" y="33" width="3" height="3"/>
-        <rect x="34" y="33" width="3" height="3"/>
-    </g>
+@php($tam = $tam ?? 38)
+<svg width="{{ $tam }}" height="{{ $tam }}" viewBox="0 0 48 48" role="img" aria-label="CafeQR" xmlns="http://www.w3.org/2000/svg">
+    <rect width="48" height="48" rx="12" fill="#a82b44"/>
+    <path d="M12 20h20v9a8 8 0 0 1-8 8h-4a8 8 0 0 1-8-8z" fill="#fff"/>
+    <path d="M32 22h3a4 4 0 0 1 0 8h-3" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M17 9c-1.5 2 1.5 3 0 5M22 9c-1.5 2 1.5 3 0 5M27 9c-1.5 2 1.5 3 0 5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".85"/>
+    <rect x="17" y="24" width="4" height="4" fill="#7d1126"/><rect x="23" y="24" width="4" height="4" fill="#7d1126"/><rect x="20" y="30" width="4" height="4" fill="#7d1126"/>
 </svg>

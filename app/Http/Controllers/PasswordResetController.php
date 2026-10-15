@@ -2,79 +2,74 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User;
-use App\Rules\CorreoInstitucional;
 use Illuminate\Auth\Events\PasswordReset;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rules\Password as ReglaPassword;
+use Illuminate\View\View;
 
 class PasswordResetController extends Controller
 {
-    // ---------- HU-04: Recuperar contraseña ----------
-    public function showForgot()
+    public function mostrarSolicitud(): View
     {
         return view('auth.forgot-password');
     }
 
-    public function sendLink(Request $request)
+    public function enviarEnlace(Request $request): RedirectResponse
     {
-        $request->validate([
-            'email' => ['required', 'email', new CorreoInstitucional],
-        ], [
-            'email.required' => 'Escribe tu correo institucional.',
-            'email.email'    => 'Escribe un correo válido.',
+        $request->validate(['email' => ['required', 'email']], [
+            'email.required' => 'Escribe tu correo.',
+            'email.email' => 'Escribe un correo válido.',
         ]);
 
-        $status = Password::sendResetLink($request->only('email'));
+        $estado = Password::sendResetLink(['email' => Str::lower(trim($request->input('email')))]);
 
-        if ($status === Password::RESET_LINK_SENT) {
-            return back()->with('status', 'Te enviamos un enlace para restablecer tu contraseña.');
+        if ($estado === Password::RESET_THROTTLED) {
+            return back()->withErrors(['email' => 'Espera un minuto antes de pedir otro enlace.']);
         }
 
-        return back()
-            ->withErrors(['email' => 'No encontramos una cuenta con ese correo.'])
-            ->onlyInput('email');
+        // Misma respuesta exista o no el correo, para no revelar quién está registrado.
+        return back()->with('exito', 'Si ese correo está registrado, te enviamos un enlace para crear una nueva contraseña. Revisa también la carpeta de spam.');
     }
 
-    public function showReset(Request $request, string $token)
+    public function mostrarRestablecer(Request $request, string $token): View
     {
-        return view('auth.reset-password', [
-            'token' => $token,
-            'email' => $request->query('email'),
-        ]);
+        return view('auth.reset-password', ['token' => $token, 'email' => $request->query('email')]);
     }
 
-    public function reset(Request $request)
+    public function restablecer(Request $request): RedirectResponse
     {
-        $request->validate([
-            'token'    => ['required'],
-            'email'    => ['required', 'email'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        $datos = $request->validate([
+            'token' => ['required'],
+            'email' => ['required', 'email'],
+            'password' => ['required', 'confirmed', ReglaPassword::min(8)->letters()->numbers()],
         ], [
-            'password.min'       => 'La contraseña debe tener al menos 8 caracteres.',
             'password.confirmed' => 'Las contraseñas no coinciden.',
+            'password.min' => 'La contraseña debe tener al menos 8 caracteres.',
+            'password.letters' => 'La contraseña debe incluir al menos una letra.',
+            'password.numbers' => 'La contraseña debe incluir al menos un número.',
         ]);
 
-        $status = Password::reset(
-            $request->only('email', 'password', 'password_confirmation', 'token'),
-            function (User $user, string $password) {
-                $user->forceFill(['password' => $password])
-                     ->setRememberToken(Str::random(60));
-                $user->save();
+        $estado = Password::reset(
+            ['email' => Str::lower(trim($datos['email'])), 'password' => $datos['password'], 'password_confirmation' => $request->input('password_confirmation'), 'token' => $datos['token']],
+            function ($usuario, string $password) {
+                $usuario->forceFill([
+                    'password' => $password,
+                    'remember_token' => Str::random(60),
+                ])->save();
 
-                event(new PasswordReset($user));
+                event(new PasswordReset($usuario));
             }
         );
 
-        if ($status === Password::PASSWORD_RESET) {
-            return redirect()
-                ->route('login')
-                ->with('status', 'Tu contraseña fue cambiada. Ya puedes iniciar sesión.');
+        if ($estado !== Password::PASSWORD_RESET) {
+            return back()->withInput($request->only('email'))
+                ->withErrors(['email' => 'El enlace venció o no es válido. Pide uno nuevo.']);
         }
 
-        return back()
-            ->withErrors(['email' => 'El enlace no es válido o ya expiró. Solicita uno nuevo.'])
-            ->onlyInput('email');
+        return redirect()->route('login')->with('exito', 'Listo, cambiaste tu contraseña. Ya puedes iniciar sesión.');
     }
 }

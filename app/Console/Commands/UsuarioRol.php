@@ -7,21 +7,21 @@ use Illuminate\Console\Command;
 
 class UsuarioRol extends Command
 {
-    protected $signature = 'usuario:rol {correo : Correo del usuario} {rol : estudiante, docente o encargado}';
+    protected $signature = 'usuario:rol {correo} {rol : cliente, empleado o administrador}';
 
-    protected $description = 'Cambia el rol de un usuario (por ejemplo, para que pueda usar la caja)';
+    protected $description = 'Cambia el rol de un usuario desde la terminal';
 
     public function handle(): int
     {
-        $rol = $this->argument('rol');
+        $rol = strtolower($this->argument('rol'));
 
-        if (! in_array($rol, ['estudiante', 'docente', 'encargado'], true)) {
-            $this->error('El rol debe ser: estudiante, docente o encargado.');
+        if (! array_key_exists($rol, User::ROLES)) {
+            $this->error('Rol inválido. Usa: '.implode(', ', array_keys(User::ROLES)));
 
             return self::FAILURE;
         }
 
-        $usuario = User::where('email', $this->argument('correo'))->first();
+        $usuario = User::where('email', strtolower($this->argument('correo')))->first();
 
         if (! $usuario) {
             $this->error('No existe un usuario con ese correo.');
@@ -30,8 +30,7 @@ class UsuarioRol extends Command
         }
 
         $usuario->update(['rol' => $rol]);
-
-        $this->info('Listo: ' . $usuario->email . ' ahora es ' . $rol . '.');
+        $this->info($usuario->name.' ahora es '.User::ROLES[$rol].'.');
 
         return self::SUCCESS;
     }

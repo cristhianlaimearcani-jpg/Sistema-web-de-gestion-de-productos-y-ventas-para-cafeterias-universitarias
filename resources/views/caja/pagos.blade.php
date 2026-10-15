@@ -1,75 +1,51 @@
-@extends('layouts.panel')
+@extends('layouts.app')
 
 @section('titulo', 'Caja')
 
 @section('contenido')
-    <h1>Caja de la cafetería</h1>
-    <p class="ayuda">
-        Aquí confirmas que el dinero llegó a tu cuenta. Al presionar "Recibí el dinero",
-        el estudiante recibe el código de confirmación en su correo.
-    </p>
+    <div class="cabecera-pagina">
+        <div>
+            <h1>Caja · confirmar pagos</h1>
+            <p class="subtitulo" style="margin:0">Aquí confirmas los pagos en efectivo y los pagos con QR que el cliente avisó.</p>
+        </div>
+        <a class="btn gris" href="{{ route('entregas.index') }}">Ir a Entregas →</a>
+    </div>
 
-    @php
-        $grupos = [
-            ['titulo' => 'Por verificar', 'pagos' => $porVerificar, 'acciones' => true,
-             'vacio' => 'No hay pagos esperando confirmación.'],
-            ['titulo' => 'Pendientes (el estudiante todavía está pagando)', 'pagos' => $pendientes, 'acciones' => true,
-             'vacio' => 'No hay pagos pendientes.'],
-            ['titulo' => 'Recientes', 'pagos' => $recientes, 'acciones' => false,
-             'vacio' => 'Todavía no hay pagos confirmados.'],
-        ];
-    @endphp
+    @if ($modoPrueba)
+        <div class="aviso">⚠️ El correo está en <strong>modo prueba</strong> (MAIL_MAILER=log): los clientes NO reciben los mensajes. Configura Gmail en el <code>.env</code> y prueba con <code>php artisan correo:probar tucorreo</code>.</div>
+    @endif
 
-    @foreach ($grupos as $grupo)
-        <section class="tarjeta">
-            <h2>{{ $grupo['titulo'] }} ({{ $grupo['pagos']->count() }})</h2>
+    <section class="tarjeta">
+        <h2>💵 Cobros en efectivo <span class="etiqueta estado-pendiente_pago">{{ $efectivo->count() }}</span></h2>
+        @forelse ($efectivo as $pago)
+            @include('caja._pago-fila', ['pago' => $pago, 'textoBoton' => 'Cobrado en efectivo'])
+        @empty
+            <p class="ayuda">No hay cobros en efectivo pendientes.</p>
+        @endforelse
+    </section>
 
-            @if ($grupo['pagos']->isEmpty())
-                <p class="sin-datos">{{ $grupo['vacio'] }}</p>
-            @else
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Pedido</th>
-                            <th>Estudiante</th>
-                            <th>Monto</th>
-                            <th>Comprobante</th>
-                            <th>Hora</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach ($grupo['pagos'] as $pago)
-                            <tr>
-                                <td>#{{ $pago->pedido_id }}</td>
-                                <td>
-                                    {{ $pago->pedido->user->name }}<br>
-                                    <span class="ayuda">{{ $pago->pedido->user->email }}</span>
-                                </td>
-                                <td>Bs {{ number_format($pago->monto, 2) }}</td>
-                                <td>{{ $pago->comprobante ?? '—' }}</td>
-                                <td>{{ $pago->updated_at->format('d/m H:i') }}</td>
-                                <td class="acciones-fila">
-                                    @if ($grupo['acciones'])
-                                        <form method="POST" action="{{ route('caja.recibido', $pago) }}">
-                                            @csrf
-                                            <button type="submit" class="btn chico">✅ Recibí el dinero</button>
-                                        </form>
-                                        <form method="POST" action="{{ route('caja.rechazar', $pago) }}">
-                                            @csrf
-                                            <button type="submit" class="btn chico rojo">No llegó</button>
-                                        </form>
-                                    @else
-                                        <span class="etiqueta estado-{{ $pago->estado === 'pagado' ? 'entregado' : 'pendiente' }}">
-                                            {{ $pago->estado === 'pagado' ? 'Pagado' : 'Esperando código' }}
-                                        </span>
-                                    @endif
-                                </td>
-                            </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            @endif
-        </section>
-    @endforeach
+    <section class="tarjeta">
+        <h2>📱 Pagos con QR por verificar <span class="etiqueta estado-pendiente_pago">{{ $porVerificar->count() }}</span></h2>
+        <p class="ayuda">El cliente avisó que ya pagó. Comprueba en tu app que el dinero llegó y confirma: se le envía el código de 6 dígitos a su correo.</p>
+        @forelse ($porVerificar as $pago)
+            @include('caja._pago-fila', ['pago' => $pago, 'textoBoton' => 'Recibí el dinero'])
+        @empty
+            <p class="ayuda">No hay pagos por verificar.</p>
+        @endforelse
+    </section>
+
+    <section class="tarjeta">
+        <h2>⏳ Esperando el código del cliente <span class="etiqueta estado-pendiente_pago">{{ $esperandoCodigo->count() }}</span></h2>
+        @forelse ($esperandoCodigo as $pago)
+            <div class="pedido-card">
+                <div class="pedido-cab">
+                    <strong>Pedido #{{ $pago->pedido->id }} · {{ $pago->pedido->user->name }}</strong>
+                    <span>Bs {{ number_format($pago->monto, 2) }}</span>
+                </div>
+                <p class="ayuda" style="margin:4px 0 0">Ya se le envió el código al correo. Falta que lo escriba en su pantalla.</p>
+            </div>
+        @empty
+            <p class="ayuda">Ningún cliente está pendiente de escribir su código.</p>
+        @endforelse
+    </section>
 @endsection

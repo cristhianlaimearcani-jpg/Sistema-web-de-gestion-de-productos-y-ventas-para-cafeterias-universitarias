@@ -1,12 +1,14 @@
-@extends('layouts.panel')
+@extends('layouts.app')
 
-@section('titulo', 'Factura ' . $factura->numero_formateado)
+@section('titulo', 'Factura '.$factura->numero_formateado)
 
 @section('contenido')
-    <div class="acciones no-imprimir" style="max-width:780px; margin:0 auto 14px;">
-        <button type="button" class="btn" onclick="window.print()">🖨️ Imprimir / guardar PDF</button>
-        <a class="btn gris" href="{{ route('pedidos.historial') }}">Volver a mis pedidos</a>
-    </div>
+    <section class="tarjeta factura">
+        @include('facturas._documento')
+    </section>
 
-    @include('facturas._documento')
+    <div class="acciones no-imprimir" style="justify-content:center">
+        <button type="button" class="btn" onclick="window.print()">🖨️ Imprimir / guardar PDF</button>
+        <a class="btn gris" href="{{ auth()->user()->esCliente() ? route('pedidos.historial') : route('admin.facturas') }}">Volver</a>
+    </div>
 @endsection
