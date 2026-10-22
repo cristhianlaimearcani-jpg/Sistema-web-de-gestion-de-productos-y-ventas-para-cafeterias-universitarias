@@ -121,7 +121,7 @@ Las tareas se registran como Issues y se organizan en el tablero Kanban de GitHu
 
 ## Documentación
 
-- [Manual de usuario](docs/manual-usuario.md)
+- [Manual de usuario](docs/manual-usuario.pdf)
 
 ## Estructura del proyecto
 
