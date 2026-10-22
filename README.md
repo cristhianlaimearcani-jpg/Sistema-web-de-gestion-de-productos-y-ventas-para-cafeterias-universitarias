@@ -1,63 +1,141 @@
-<<<<<<< HEAD
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# CafeQR
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Sistema web de gestión de productos y ventas para cafeterías universitarias.
 
-## About Laravel
+CafeQR permite a los estudiantes pedir productos de la cafetería desde el celular o la computadora, pagar con QR y seguir el estado de su pedido. El personal de caja y el administrador gestionan productos, pagos, usuarios y cupones desde un panel.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Integrantes
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Nombre | Rol |
+|---|---|
+| Cristhian Laime | Desarrollador |
+| Andres Mamani | Desarrollador |
+| Jhon Barros | Desarrollador |
+| Saul Gutierrez | Desarrollador |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Funcionalidades
 
-## Learning Laravel
+- Registro e inicio de sesión con correo institucional
+- Catálogo de productos y carrito de pedidos
+- Pago mediante código QR (modo demo o modo banco)
+- Seguimiento del pedido en tiempo de preparación
+- Cupones de descuento
+- Facturas y comprobantes
+- Correos automáticos (bienvenida, pago confirmado)
+- Panel de administración (usuarios, productos, correos)
+- Perfil de usuario
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+## Tecnologías
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+- PHP 8.2+ con Laravel
+- SQLite
+- Blade, CSS y Vite
+- Pest para pruebas
 
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
+## Requisitos
 
-## Agentic Development
+- PHP 8.2 o superior
+- Composer
+- Node.js 18 o superior
+- Git
 
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+## Instalación
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+git clone https://github.com/cristhianlaimearcani-jpg/Sistema-web-de-gestion-de-productos-y-ventas-para-cafeterias-universitarias.git
+cd Sistema-web-de-gestion-de-productos-y-ventas-para-cafeterias-universitarias
+composer install
+npm install
+cp .env.example .env
+php artisan key:generate
+touch database/database.sqlite
+php artisan migrate --seed
+npm run dev
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+En otra terminal:
 
-## Contributing
+```bash
+php artisan serve
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+La aplicación queda disponible en http://localhost:8000
 
-## Code of Conduct
+## Configuración
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Edita el archivo `.env` (copiado de `.env.example`):
 
-## Security Vulnerabilities
+| Variable | Descripción |
+|---|---|
+| `MAIL_MAILER` | `log` guarda los correos en `storage/logs/laravel.log`; `smtp` los envía de verdad |
+| `PAGO_MODO` | `demo` muestra una página de pago de prueba; `banco` usa el QR real de cobro |
+| `DOMINIO_INSTITUCIONAL` | Dominio de correo permitido para registrarse |
+| `PAGO_MINUTOS` | Minutos disponibles para pagar un pedido |
+| `TIEMPO_PREPARACION` | Minutos estimados de preparación |
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Nunca subas el archivo `.env` al repositorio: contiene claves y contraseñas.
 
-## License
+## Usuario administrador
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
-=======
-# Sistema-web-de-gestion-de-productos-y-ventas-para-cafeterias-universitarias
-Sistema web de gestion de productos y ventas para cafeterias universitarias
->>>>>>> 5d7e4b72d35679b42a78aa43813deda2a605b5c8
+El administrador se crea automáticamente con `php artisan migrate`. Las credenciales por defecto están en `.env.example`.
+
+## Pruebas
+
+```bash
+php artisan test
+```
+
+## Convención de commits
+
+Usamos [Conventional Commits](https://www.conventionalcommits.org/es/):
+
+| Prefijo | Uso |
+|---|---|
+| `feat:` | Nueva funcionalidad |
+| `fix:` | Corrección de errores |
+| `docs:` | Cambios en documentación |
+| `style:` | Formato o estilos, sin cambiar la lógica |
+| `refactor:` | Reorganización de código |
+| `test:` | Pruebas |
+| `chore:` | Tareas de mantenimiento |
+
+Ejemplo: `feat: agregar panel de cupones`
+
+## Flujo de trabajo con ramas
+
+- `main`: versión estable
+- `feature/nombre-de-la-tarea`: una rama por funcionalidad
+- `fix/nombre-del-error`: una rama por corrección
+
+Pasos:
+
+1. Crear una rama desde `main`: `git checkout -b feature/mi-tarea`
+2. Hacer commits siguiendo la convención
+3. Subir la rama: `git push -u origin feature/mi-tarea`
+4. Abrir un Pull Request hacia `main`
+5. Otro integrante revisa y aprueba antes del merge
+
+## Gestión del proyecto
+
+Las tareas se registran como Issues y se organizan en el tablero Kanban de GitHub Projects. Cada Issue se asigna a un integrante.
+
+## Documentación
+
+- [Manual de usuario](docs/manual-usuario.md)
+
+## Estructura del proyecto
+
+```
+app/          Modelos y controladores
+config/       Configuración
+database/     Migraciones y seeders
+docs/         Documentación y manual de usuario
+public/       Archivos públicos (CSS, imágenes)
+resources/    Vistas Blade
+routes/       Rutas de la aplicación
+tests/        Pruebas
+```
+
+## Proyecto académico
+
+Proyecto de Sistemas I, Universidad del Valle. Gestión 2-2026.
