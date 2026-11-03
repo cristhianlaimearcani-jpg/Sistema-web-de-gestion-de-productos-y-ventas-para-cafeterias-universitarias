@@ -1,0 +1,93 @@
+LISTA DE FOTOS DE PRODUCTOS - CafeQR
+=====================================
+
+Copia tus fotos a la carpeta  public\productos  con EXACTAMENTE estos nombres.
+Puede ser .jpg, .jpeg, .png o .webp  (ejemplo: cafe-americano.jpg).
+Apenas la foto esta en la carpeta, la pagina la muestra sola (refresca con Ctrl+F5).
+El producto que no tenga foto sigue mostrando su dibujo.
+
+Otra forma: entra como administrador -> Productos -> Editar -> Imagen -> Guardar.
+
+[Bebidas calientes]
+api-con-pastel.jpg                    <- Api con pastel
+cafe-americano.jpg                    <- Café americano
+cafe-con-leche.jpg                    <- Café con leche
+capuchino.jpg                         <- Capuchino
+chocolate-caliente.jpg                <- Chocolate caliente
+espresso.jpg                          <- Espresso
+latte-vainilla.jpg                    <- Latte vainilla
+mate-de-coca.jpg                      <- Mate de coca
+moka.jpg                              <- Moka
+te-con-canela.jpg                     <- Té con canela
+te-de-manzanilla.jpg                  <- Té de manzanilla
+te-emoliente.jpg                      <- Té emoliente
+te-verde.jpg                          <- Té verde
+
+[Bebidas frías]
+agua-mineral-500-ml.jpg               <- Agua mineral 500 ml
+batido-de-platano.jpg                 <- Batido de plátano
+frappe-de-cafe.jpg                    <- Frappé de café
+jugo-de-maracuya.jpg                  <- Jugo de maracuyá
+jugo-de-naranja.jpg                   <- Jugo de naranja
+jugo-de-papaya.jpg                    <- Jugo de papaya
+limonada.jpg                          <- Limonada
+milkshake-de-vainilla.jpg             <- Milkshake de vainilla
+mocochinchi.jpg                       <- Mocochinchi
+refresco-500-ml.jpg                   <- Refresco 500 ml
+smoothie-de-frutilla.jpg              <- Smoothie de frutilla
+te-helado.jpg                         <- Té helado
+
+[Combos]
+combo-desayuno.jpg                    <- Combo desayuno
+combo-ejecutivo.jpg                   <- Combo ejecutivo
+combo-energia.jpg                     <- Combo energía
+combo-salado.jpg                      <- Combo salado
+combo-tarde.jpg                       <- Combo tarde
+
+[Comidas]
+almuerzo-del-dia.jpg                  <- Almuerzo del día
+ensalada-fresca.jpg                   <- Ensalada fresca
+hamburguesa-clasica.jpg               <- Hamburguesa clásica
+hot-dog.jpg                           <- Hot dog
+pasta-bolonesa.jpg                    <- Pasta boloñesa
+pizza-personal.jpg                    <- Pizza personal
+pollo-con-papas.jpg                   <- Pollo con papas
+salchipapa.jpg                        <- Salchipapa
+silpancho.jpg                         <- Silpancho
+
+[Postres]
+alfajor.jpg                           <- Alfajor
+brownie.jpg                           <- Brownie
+cheesecake.jpg                        <- Cheesecake
+flan-de-leche.jpg                     <- Flan de leche
+galletas-de-avena.jpg                 <- Galletas de avena
+gelatina-con-crema.jpg                <- Gelatina con crema
+helado-de-crema.jpg                   <- Helado de crema
+muffin-de-arandanos.jpg               <- Muffin de arándanos
+panqueque.jpg                         <- Panqueque
+porcion-de-torta.jpg                  <- Porción de torta
+waffle-con-miel.jpg                   <- Waffle con miel
+
+[Snacks]
+dona-glaseada.jpg                     <- Dona glaseada
+empanada-de-carne.jpg                 <- Empanada de carne
+empanada-de-queso.jpg                 <- Empanada de queso
+galletas.jpg                          <- Galletas
+mix-de-frutos-secos.jpg               <- Mix de frutos secos
+nachos-con-queso.jpg                  <- Nachos con queso
+papas-fritas.jpg                      <- Papas fritas
+saltena.jpg                           <- Salteña
+saltena-de-carne.jpg                  <- Salteña de carne
+saltena-de-pollo.jpg                  <- Salteña de pollo
+tucumana.jpg                          <- Tucumana
+
+[Sándwiches]
+choripan.jpg                          <- Choripán
+croissant-de-jamon-y-queso.jpg        <- Croissant de jamón y queso
+sandwich-de-atun.jpg                  <- Sándwich de atún
+sandwich-de-jamon-y-queso.jpg         <- Sándwich de jamón y queso
+sandwich-de-pollo.jpg                 <- Sándwich de pollo
+sandwich-vegetariano.jpg              <- Sándwich vegetariano
+tostada-de-jamon-y-queso.jpg          <- Tostada de jamón y queso
+tostado-de-queso.jpg                  <- Tostado de queso
+wrap-de-pollo.jpg                     <- Wrap de pollo
