@@ -1,0 +1,90 @@
+CAFEQR - ACTUALIZACION (compra segura, soporte, estadisticas y stock)
+=====================================================================
+NUEVO EN ESTA VERSION (v6)
+- LOGIN Y REGISTRO: en el espacio vacio del medio hay una animacion (motion graphic):
+  un celular con el QR que se escanea y se confirma el pago, tarjetas con productos reales
+  del menu flotando y el ticket con el codigo de recojo. Solo en pantallas grandes.
+- ANIMACION AL HACER SCROLL: en el menu y en las demas paginas, los productos, tarjetas y
+  secciones aparecen suavemente cuando bajas; la foto de la U del menu se mueve con efecto
+  parallax y la barra de arriba gana sombra al bajar.
+- PRODUCTOS EN LA BASE DE DATOS: iniciar-cafeqr.bat ahora prepara la base de datos y carga
+  los productos del menu y los cupones cada vez que arranca (nunca los duplica).
+- NUEVO instalar-cafeqr.bat: para instalar desde cero si se borro el proyecto
+  (composer install, .env, clave, tablas, administrador, productos y cupones).
+
+ANTES (v5)
+- Se quito la pagina de presentacion: al abrir CafeQR va directo a "Iniciar sesion".
+  Si ya entraste, te lleva a tu pantalla (menu, entregas o panel).
+- Login, registro y recuperar contrasena ya no tienen el panel de la izquierda
+  ("Tu cafe, sin hacer fila..."): queda solo el formulario.
+- La foto de la U se ve clara y con sus colores (antes se veia muy oscura).
+  En computadora el formulario va a la izquierda para que se vea la torre de UNIVALLE;
+  en el celular va al centro.
+- Tarjeta tipo vidrio con barra de color arriba, logo de CafeQR con "Cafeteria · Univalle",
+  campos con icono (correo, candado, persona, celular) y boton con brillo.
+- Animacion de entrada: la foto aparece y se acerca suave, la tarjeta sube, la barra de
+  color se dibuja, el logo entra girando (con el vapor de la taza moviendose) y cada
+  campo aparece en orden; al final el boton hace un brillo.
+  Al pasar del login al registro (o al reves) la tarjeta sale hacia un lado y la nueva
+  entra por el otro. Si un dato esta mal, el campo con error se sacude.
+- El boton dice "Entrando...", "Creando tu cuenta..." o "Enviando..." mientras procesa.
+- Funciona en modo claro y oscuro. Si la computadora tiene "reducir movimiento", no anima.
+
+ANTERIOR
+- Boton de compra protegido: al pulsarlo se desactiva y dice "Procesando...".
+  Sirve para todos los botones: no se manda nada dos veces por doble clic.
+- Proteccion contra pedidos duplicados: cada intento de compra lleva una clave unica.
+  Si el servidor recibe otra vez el mismo intento, devuelve el pedido que ya existe.
+- Aviso de compra repetida: si armas el mismo pedido que uno reciente sin terminar,
+  sale "Ya tienes un pedido igual. Deseas ver ese pedido o comprar otro?".
+- Confirmacion clara: numero de pedido, productos, total y estado despues de comprar.
+- Mis pedidos con filtros: Pendientes, En preparacion, Listos, Entregados, Cancelados.
+- Cancelar solo antes de la preparacion. Si ya pago, queda reembolso pendiente; el
+  personal lo marca como realizado en Entregas y al cliente le llega un correo.
+- SIN codigo de 6 digitos: cuando el pago con QR llega, la pagina cambia sola y muestra
+  el codigo de recojo (tambien en el celular que pago).
+- Control del pago: cada pago queda unido a su pedido con su n.o de transaccion.
+  Una misma transaccion no se acredita dos veces (en Caja se escribe el n.o del comprobante).
+- AYUDA / SOPORTE: el cliente escribe su problema (pago, pedido, error...), el personal
+  responde desde "Soporte" y el cliente recibe un correo. Con preguntas frecuentes.
+- ESTADISTICAS (administrador): ventas, pedidos, ticket promedio, productos mas vendidos,
+  horas pico, dias, categorias, formas de pago, clientes, cupones, cancelaciones,
+  reembolsos, tiempos, stock bajo y productos sin ventas. Por periodo o por fechas.
+- STOCK: cada producto tiene cuantas unidades hay. Se descuenta al comprar y vuelve si se
+  cancela. Con 0 sale "Agotado". En Productos la lista esta numerada y muestra stock,
+  vendidos y botones para cambiar el stock (Guardar / +10).
+- Pedidos que se quedan sin pagar 90 minutos se cancelan solos y el stock vuelve al menu
+  (se cambia con MINUTOS_SIN_PAGAR en el .env). No toca los pagos que la caja debe verificar.
+- Se probaron TODAS las paginas y TODOS los formularios como invitado, cliente, empleado
+  y administrador (incluso con datos raros): ninguno da error.
+
+IMPORTANTE: esta version agrega tablas y columnas nuevas -> hay que hacer  php artisan migrate
+(no borra nada). Todos los productos empiezan con stock 20; cambialo en Productos.
+
+QUE NO TRAE ESTE ZIP (para no pisar lo tuyo)
+  .env (tu Gmail), database\database.sqlite (tus datos), vendor, public\fotos,
+  public\img\qr-cobro.png, .git
+
+PASOS (PowerShell, dentro de tu carpeta mi-proyecto)
+1. Cierra el servidor (cierra la ventana negra o Ctrl+C).
+2. Descomprime el ZIP. Entra a la carpeta CafeQR, selecciona TODO (Ctrl+A), copia (Ctrl+C),
+   pega (Ctrl+V) dentro de tu carpeta mi-proyecto y elige "Reemplazar los archivos en el destino".
+3. En PowerShell, dentro de mi-proyecto:
+     php artisan migrate --force
+     php artisan optimize:clear
+     php artisan test
+   Debe decir 54 passed.
+4. Inicia:  .\iniciar-cafeqr.bat   y en el navegador Ctrl+F5.
+
+OPCIONAL: en vez de los pasos 2 y 3 puedes ejecutar actualizar-cafeqr.ps1 (clic derecho >
+"Ejecutar con PowerShell"): hace respaldo, copia y actualiza solo.
+
+PARA QUE LOS CORREOS LLEGUEN DE VERDAD (.env)
+  MAIL_MAILER=smtp
+  MAIL_HOST=smtp.gmail.com
+  MAIL_PORT=587
+  MAIL_USERNAME=tucorreo@gmail.com
+  MAIL_PASSWORD=tus16letrasdeaplicacion
+  MAIL_FROM_ADDRESS=tucorreo@gmail.com      <- el MISMO Gmail que MAIL_USERNAME
+  SESSION_DOMAIN=null
+Despues de cambiar el .env:  php artisan config:clear
